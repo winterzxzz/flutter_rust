@@ -1,7 +1,7 @@
 # fast_rust
 
-Các kernel hiệu năng cao viết bằng Rust cho Dart và Flutter, nạp qua
-*native assets* (build hook tự gọi `cargo`) và gọi FFI zero-copy.
+High-performance kernels written in Rust for Dart and Flutter, loaded through
+*native assets* (a build hook runs `cargo` for you) and called with zero-copy FFI.
 
 ```dart
 import 'package:fast_rust/fast_rust.dart';
@@ -9,15 +9,17 @@ import 'package:fast_rust/fast_rust.dart';
 final digest = FastRust.sha256(bytes);
 FastRust.boxBlurRgba(pixels, width: w, height: h, radius: 8);
 final img = await FastRust.mandelbrotRgbaAsync(width: 800, height: 600, scale: 3 / 800);
+FastRust.floodFillRgba(page, width: 1024, height: 1024, x: 10, y: 20, color: 0x2A9D8FFF);
 ```
 
-Cần Rust ≥ 1.88 cùng target của nền tảng đích (`rustup target add …`).
+Requires Rust ≥ 1.88 and the Rust targets for your platforms (`rustup target add …`).
 
-Tài liệu đầy đủ (API, quy tắc leaf/non-leaf, kiến trúc, benchmark, cách thêm
-hàm mới) nằm ở [README gốc của repo](../../README.md).
+Full documentation lives in the [repository README](../../README.md): the API,
+the leaf/non-leaf rule, the architecture, benchmarks, and how to add new
+functions.
 
 ```sh
-dart test                              # test đúng/sai
-(cd rust && cargo test --release)      # test Rust
-dart run benchmark/benchmark.dart      # benchmark
+dart test                              # correctness tests
+(cd rust && cargo test --release)      # Rust tests
+dart run benchmark/benchmark.dart      # benchmarks
 ```
