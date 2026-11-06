@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="468" viewBox="0 0 900 468" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+<title id="t">fast_rust: Rust nhanh hơn Dart bao nhiêu lần</title>
+<desc id="d">Hệ số tăng tốc của Rust so với Dart thuần, khi Rust chạy 1 luồng và 10 luồng.</desc>
+<rect width="100%" height="100%" rx="12" fill="#fcfcfb"/>
+<text x="24" y="36" font-size="20" font-weight="600" fill="#0b0b0b">Rust nhanh hơn Dart bao nhiêu lần</text>
+<text x="24" y="60" font-size="13" fill="#52514e">Hệ số = thời gian Dart ÷ thời gian Rust · AOT · macos · median 9 lần chạy</text>
+<rect x="570.0" y="72" width="12" height="12" rx="3" fill="#2a78d6"/>
+<text x="588.0" y="82" font-size="13" fill="#0b0b0b">Rust 1 luồng</text>
+<rect x="700.0" y="72" width="12" height="12" rx="3" fill="#eb6834"/>
+<text x="718.0" y="82" font-size="13" fill="#0b0b0b">Rust 10 luồng</text>
+<line x1="170.0" y1="86" x2="170.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="170.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">0×</text>
+<line x1="304.0" y1="86" x2="304.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="304.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">5×</text>
+<line x1="438.0" y1="86" x2="438.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="438.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">10×</text>
+<line x1="572.0" y1="86" x2="572.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="572.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">15×</text>
+<line x1="706.0" y1="86" x2="706.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="706.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">20×</text>
+<line x1="840.0" y1="86" x2="840.0" y2="418" stroke="#e4e3df" stroke-width="1"/>
+<text x="840.0" y="436" font-size="12" text-anchor="middle" fill="#52514e">25×</text>
+<line x1="196.8" y1="86" x2="196.8" y2="418" stroke="#52514e" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="200.8" y="82" font-size="11" fill="#52514e">1× = ngang Dart</text>
+<text x="158" y="111.0" font-size="13" text-anchor="end" fill="#0b0b0b">SHA-256 8 MiB</text>
+<path d="M170.0 92.0 H214.97008133429426 Q218.97008133429426 92.0 218.97008133429426 96.0 V102.0 Q218.97008133429426 106.0 214.97008133429426 106.0 H170.0 Z" fill="#2a78d6"/>
+<text x="224.97008133429426" y="103.0" font-size="12" fill="#0b0b0b">1.8×</text>
+<path d="M170.0 108.0 H215.12687461268334 Q219.12687461268334 108.0 219.12687461268334 112.0 V118.0 Q219.12687461268334 122.0 215.12687461268334 122.0 H170.0 Z" fill="#eb6834"/>
+<text x="225.12687461268334" y="119.0" font-size="12" fill="#0b0b0b">1.8×</text>
+<text x="158" y="159.0" font-size="13" text-anchor="end" fill="#0b0b0b">Grayscale 1080p</text>
+<path d="M170.0 140.0 H250.99507186858315 Q254.99507186858315 140.0 254.99507186858315 144.0 V150.0 Q254.99507186858315 154.0 250.99507186858315 154.0 H170.0 Z" fill="#2a78d6"/>
+<text x="260.9950718685832" y="151.0" font-size="12" fill="#0b0b0b">3.2×</text>
+<path d="M170.0 156.0 H389.7437837837838 Q393.7437837837838 156.0 393.7437837837838 160.0 V166.0 Q393.7437837837838 170.0 389.7437837837838 170.0 H170.0 Z" fill="#eb6834"/>
+<text x="399.7437837837838" y="167.0" font-size="12" fill="#0b0b0b">8.3×</text>
+<text x="158" y="207.0" font-size="13" text-anchor="end" fill="#0b0b0b">Box blur 1080p</text>
+<path d="M170.0 188.0 H218.0925856485427 Q222.0925856485427 188.0 222.0925856485427 192.0 V198.0 Q222.0925856485427 202.0 218.0925856485427 202.0 H170.0 Z" fill="#2a78d6"/>
+<text x="228.0925856485427" y="199.0" font-size="12" fill="#0b0b0b">1.9×</text>
+<path d="M170.0 204.0 H305.42846715328466 Q309.42846715328466 204.0 309.42846715328466 208.0 V214.0 Q309.42846715328466 218.0 305.42846715328466 218.0 H170.0 Z" fill="#eb6834"/>
+<text x="315.42846715328466" y="215.0" font-size="12" fill="#0b0b0b">5.2×</text>
+<text x="158" y="255.0" font-size="13" text-anchor="end" fill="#0b0b0b">Mandelbrot 800×600</text>
+<path d="M170.0 236.0 H196.68982465122232 Q200.68982465122232 236.0 200.68982465122232 240.0 V246.0 Q200.68982465122232 250.0 196.68982465122232 250.0 H170.0 Z" fill="#2a78d6"/>
+<text x="206.68982465122232" y="247.0" font-size="12" fill="#0b0b0b">1.1×</text>
+<path d="M170.0 252.0 H361.6213423256826 Q365.6213423256826 252.0 365.6213423256826 256.0 V262.0 Q365.6213423256826 266.0 361.6213423256826 266.0 H170.0 Z" fill="#eb6834"/>
+<text x="371.6213423256826" y="263.0" font-size="12" fill="#0b0b0b">7.3×</text>
+<text x="158" y="303.0" font-size="13" text-anchor="end" fill="#0b0b0b">Sort 1 triệu số</text>
+<path d="M170.0 284.0 H752.6261617330908 Q756.6261617330908 284.0 756.6261617330908 288.0 V294.0 Q756.6261617330908 298.0 752.6261617330908 298.0 H170.0 Z" fill="#2a78d6"/>
+<text x="762.6261617330908" y="295.0" font-size="12" fill="#0b0b0b">21.9×</text>
+<path d="M170.0 300.0 H751.3677227722773 Q755.3677227722773 300.0 755.3677227722773 304.0 V310.0 Q755.3677227722773 314.0 751.3677227722773 314.0 H170.0 Z" fill="#eb6834"/>
+<text x="761.3677227722773" y="311.0" font-size="12" fill="#0b0b0b">21.8×</text>
+<text x="158" y="351.0" font-size="13" text-anchor="end" fill="#0b0b0b">Sàng nguyên tố 20M</text>
+<path d="M170.0 332.0 H231.05402780843082 Q235.05402780843082 332.0 235.05402780843082 336.0 V342.0 Q235.05402780843082 346.0 231.05402780843082 346.0 H170.0 Z" fill="#2a78d6"/>
+<text x="241.05402780843082" y="343.0" font-size="12" fill="#0b0b0b">2.4×</text>
+<path d="M170.0 348.0 H237.85758166747928 Q241.85758166747928 348.0 241.85758166747928 352.0 V358.0 Q241.85758166747928 362.0 237.85758166747928 362.0 H170.0 Z" fill="#eb6834"/>
+<text x="247.85758166747928" y="359.0" font-size="12" fill="#0b0b0b">2.7×</text>
+<text x="158" y="399.0" font-size="13" text-anchor="end" fill="#0b0b0b">Tích vô hướng 1M</text>
+<path d="M170.0 380.0 H224.96 Q228.96 380.0 228.96 384.0 V390.0 Q228.96 394.0 224.96 394.0 H170.0 Z" fill="#2a78d6"/>
+<text x="234.96" y="391.0" font-size="12" fill="#0b0b0b">2.2×</text>
+<path d="M170.0 396.0 H224.19676375404532 Q228.19676375404532 396.0 228.19676375404532 400.0 V406.0 Q228.19676375404532 410.0 224.19676375404532 410.0 H170.0 Z" fill="#eb6834"/>
+<text x="234.19676375404532" y="407.0" font-size="12" fill="#0b0b0b">2.2×</text>
+</svg>
