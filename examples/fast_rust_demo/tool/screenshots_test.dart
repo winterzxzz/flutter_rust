@@ -147,4 +147,48 @@ void main() {
       matchesGoldenFile('../../../docs/images/screenshot-paint.png'),
     );
   });
+
+  testWidgets('photo', (tester) async {
+    await phone(tester);
+    await tester.tap(find.text('Photo'));
+    await tester.pump();
+    await _settle(
+      tester,
+      () => find.byKey(const Key('photo-canvas')).evaluate().isNotEmpty,
+    );
+    final box = tester.getRect(find.byKey(const Key('photo-canvas')));
+    Offset at(double fx, double fy) =>
+        box.topLeft + Offset(box.width * fx, box.height * fy);
+    Future<void> pick(int color) async {
+      final swatches = find.byType(AnimatedContainer);
+      await tester.tap(swatches.at(color));
+      await tester.pump();
+    }
+
+    // Pink hair: short strokes on the strands away from the face.
+    await pick(0);
+    for (final (fx, fy) in [
+      (0.66, 0.48),
+      (0.70, 0.60),
+      (0.74, 0.72),
+      (0.32, 0.55),
+      (0.30, 0.68),
+      (0.58, 0.36),
+    ]) {
+      await tester.dragFrom(at(fx, fy), Offset(0, box.height * 0.06));
+      await tester.pump();
+    }
+    await _wait(tester, 300);
+    // Purple grass, tapped in a few places.
+    await pick(6);
+    for (final p in [at(0.1, 0.85), at(0.85, 0.85), at(0.2, 0.95)]) {
+      await tester.tapAt(p);
+      await tester.pump();
+    }
+    await _wait(tester, 800);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-photo.png'),
+    );
+  });
 }
