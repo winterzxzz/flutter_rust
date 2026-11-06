@@ -5,7 +5,7 @@
 # flutter_rust: Flutter + Rust FFI for high-performance Flutter apps
 
 **Call Rust from Flutter/Dart with `dart:ffi`: no codegen, zero-copy, built automatically by native assets.**
-**Photo recoloring**, **photo to coloring page**, a **spreading fill**, **pixel-art flood fill**,
+**Real-time path tracing**, **photo recoloring**, **photo to coloring page**, a **spreading fill**, **pixel-art flood fill**,
 **falling sand**, image processing, hashing and sorting run **1.5× to 21× faster** than pure Dart. Every number is benchmarked and every result is verified by tests.
 
 [![pub package](https://img.shields.io/pub/v/fast_rust.svg)](https://pub.dev/packages/fast_rust)
@@ -14,7 +14,7 @@
 ![Rust](https://img.shields.io/badge/Rust-%E2%89%A51.88-B7410E?logo=rust&logoColor=white)
 ![FFI](https://img.shields.io/badge/dart%3Affi-zero--copy-6f42c1)
 ![Dependencies](https://img.shields.io/badge/Rust%20deps-0-success)
-![Tests](https://img.shields.io/badge/tests-72%20passing-success)
+![Tests](https://img.shields.io/badge/tests-79%20passing-success)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Demo video](#demo-video) ·
@@ -61,6 +61,10 @@ enough.
 - 🖌️ **Recolor real photos:** tap the hair and it turns pink, with every
   strand still visible. A magic-wand selection over the original pixels plus a
   brightness-preserving tint; a tap on a 505×607 photo takes 0.05 to 1.3 ms.
+- 🔮 **Real-time path tracing:** glass, metal and diffuse spheres with soft
+  shadows, reflections, refraction and depth of field. The picture sharpens
+  as samples accumulate on every core: one 480×360 sample takes 4.9 ms on 8
+  threads, against 63 ms in Dart (12.8×). Drag to orbit.
 - 🖍️ **Photo to coloring page:** any photo becomes black outlines on white,
   with closed regions ready to fill (blur, k-means, cleanup, outlines). It
   takes about 116 ms in Rust and 730 ms in Dart for 1920×1080. **Color splash** comes
@@ -77,17 +81,17 @@ enough.
   load-balancing work queue. On an Apple M4, Mandelbrot runs **7.3×** faster.
 - 📱 **No UI jank:** the `...Async` functions run on a background isolate
   with *non-leaf* calls, so they block neither the UI thread nor the GC.
-- ✅ **Verified:** 72 tests across Rust, Dart and Flutter.
+- ✅ **Verified:** 79 tests across Rust, Dart and Flutter.
   - Rust output matches the pure-Dart implementation bit for bit.
   - SHA-256 output matches `package:crypto`.
 - 📦 **Small:** the Rust crate has zero dependencies, builds offline and is easy to audit.
 
 <div align="center">
 
-| Photo to coloring page | Color splash | Falling sand (1M cells) |
-|:---:|:---:|:---:|
-| <img src="docs/images/screenshot-lineart.png" alt="A photo turned into a coloring page by Rust in Flutter, partly filled" width="200"/> | <img src="docs/images/screenshot-splash.png" alt="Color splash in Flutter: gray photo with the hair restored by a Rust region selection" width="200"/> | <img src="docs/images/screenshot-sand.png" alt="Falling-sand simulation of a million cells stepped by Rust in Flutter" width="200"/> |
-| Rust turns the photo into outlines; tap regions to fill; *Reveal* uses the photo's own colors | Gray canvas; each tap copies the original colors of one region back | Pour sand and water, draw walls, add rain; switch to Dart and watch the FPS |
+| Real-time path tracing | Photo to coloring page | Color splash | Falling sand (1M cells) |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/images/screenshot-ray.png" alt="Real-time path tracing of glass, metal and diffuse spheres in Flutter, rendered by multi-threaded Rust" width="200"/> | <img src="docs/images/screenshot-lineart.png" alt="A photo turned into a coloring page by Rust in Flutter, partly filled" width="200"/> | <img src="docs/images/screenshot-splash.png" alt="Color splash in Flutter: gray photo with the hair restored by a Rust region selection" width="200"/> | <img src="docs/images/screenshot-sand.png" alt="Falling-sand simulation of a million cells stepped by Rust in Flutter" width="200"/> |
+| Samples accumulate every frame, so the image sharpens in seconds; drag to orbit | Rust turns the photo into outlines; tap regions to fill; *Reveal* uses the photo's own colors | Gray canvas; each tap copies the original colors of one region back | Pour sand and water, draw walls, add rain; switch to Dart and watch the FPS |
 
 | Photo recoloring in Rust | Pixel-art coloring in Rust | Fractal explorer in Rust | Real-time blur on the UI thread |
 |:---:|:---:|:---:|:---:|
@@ -99,17 +103,19 @@ enough.
 ### Demo video
 
 <p align="center">
-  <img src="docs/video/demo.gif" width="320" alt="fast_rust demo video: recoloring hair and grass in a photo with a spreading fill, filling a pixel-art coloring page, Auto mode at 62 FPS and a Rust-rendered fractal zoom"/>
+  <img src="docs/video/demo.gif" width="320" alt="fast_rust demo video: recoloring a photo with a spreading fill, color splash, a photo turned into a coloring page, falling sand, real-time path tracing, a pixel-art coloring page and a Rust-rendered fractal zoom"/>
 </p>
 
-52 seconds of real app footage:
+61 seconds of real app footage:
 1. Photo recoloring with the spreading fill.
 2. Color splash.
 3. The photo turned into a coloring page, filled region by region, then
    *Reveal*.
 4. Falling sand, switched between Rust and Dart.
-5. The pixel-art coloring book: spread, drag, and Auto mode.
-6. A fractal zoom. It is recorded
+5. Real-time path tracing: the image sharpens, an orbit restarts it, and the
+   Dart engine is switched in for comparison.
+6. The pixel-art coloring book: spread, drag, and Auto mode.
+7. A fractal zoom. It is recorded
 headless by `examples/fast_rust_demo/tool/video_test.dart`. Full quality:
 [`docs/video/demo.mp4`](docs/video/demo.mp4).
 
@@ -166,9 +172,10 @@ is in [`docs/benchmark.json`](docs/benchmark.json).
 | Count primes ≤ 20 million                  |   23.24 |    9.23 |  2.5× |     9.34 |  2.5× |
 | Dot product of 1M `double`s                |    0.69 |    0.32 |  2.2× |     0.32 |  2.1× |
 
-**Newer pixel kernels.** These two were measured later on a different machine
+**Newer kernels.** These were measured later on a different machine
 (Apple M1 Pro, 8 threads, under background load), so compare them only with
-each other. Both run on a solid 1920×1080 region, which selects the whole frame:
+each other. The recolor and spreading-fill rows use a solid 1920×1080 region,
+which selects the whole frame:
 
 | Task                                                   | Dart ms | Rust ms |    × |
 |--------------------------------------------------------|--------:|--------:|-----:|
@@ -176,6 +183,7 @@ each other. Both run on a solid 1920×1080 region, which selects the whole frame
 | Spreading-fill distances (`spreadDistancesRgba`)       |  182.74 |   54.30 | 3.4× |
 | Photo to coloring page 1920×1080, demo settings (`photoToColoringPage`) | 731.88 | 115.62 | 6.3× |
 | Falling-sand step 1024×1024, random grid (`sandStep`)  |   13.75 |    8.96 | 1.5× |
+| Path trace 480×360, 1 sample, 8 threads (`pathTrace`)  |   63.02 |    4.94 | 12.8× |
 
 The sand step is a sequential, branchy scan that AOT Dart handles well, so
 Rust gains only 1.5× there. A tapped region in a real photo is usually far
@@ -227,6 +235,7 @@ flutter_rust/
 │   │       ├── coloring.rs          # Coloring pages, flood fill, photo recolor, spreading fill
 │   │       ├── lineart.rs           # Photo to coloring page: blur, k-means, cleanup, outlines
 │   │       ├── sand.rs              # Falling-sand cellular automaton
+│   │       ├── raytrace.rs          # Progressive path tracer (spheres, glass, metal, depth of field)
 │   │       └── numeric.rs           # f64 sort, prime sieve, dot product
 │   ├── hook/build.dart              # Build hook: runs cargo for the right target, registers the CodeAsset
 │   ├── lib/
@@ -235,17 +244,17 @@ flutter_rust/
 │   │       ├── bindings.dart        # @Native declarations (leaf and non-leaf)
 │   │       ├── api.dart             # Safe API: class FastRust
 │   │       └── dart_reference.dart  # Same algorithms in pure Dart (oracle and baseline)
-│   ├── test/fast_rust_test.dart     # 40 tests: correctness, validation, async, coloring, recolor, sand
+│   ├── test/fast_rust_test.dart     # 43 tests: correctness, validation, async, coloring, recolor, sand, path tracing
 │   ├── example/fast_rust_example.dart # Command-line tour: every kernel in Rust and Dart, outputs compared
 │   ├── benchmark/benchmark.dart     # Command-line benchmark (--json exports results)
 │   └── tool/readme_images.dart      # Generates the README charts and images from real output
 └── examples/fast_rust_demo/         # Flutter demo app
     ├── lib/
-    │   ├── main.dart                # 6 tabs, each built on first visit
+    │   ├── main.dart                # 7 tabs, each built on first visit
     │   ├── benchmarks.dart          # Benchmark cases run on a background isolate
     │   ├── engine.dart              # Rust/Dart enum, RGBA to ui.Image
     │   ├── spread.dart              # One running spreading-fill animation
-    │   └── pages/                   # benchmark, fractal, blur, paint, photo and sand pages
+    │   └── pages/                   # benchmark, fractal, blur, paint, photo, sand and ray pages
     ├── test/app_test.dart           # Widget tests (load the real Rust library through native assets)
     ├── assets/photo.jpg             # Photo used by the Photo tab
     └── tool/                        # screenshots_test.dart, video_test.dart, make_video.sh
@@ -398,6 +407,8 @@ Everything lives in `abstract final class FastRust`.
 | `photoToColoringPageAsync(...) → Future<ColoringPage>` | background isolate | Same, in the background. |
 | `sandStep(cells, width:, height:, frame:) → int` | sync, leaf, in place | One falling-sand step on a grid of `SandMaterial` values (empty, wall, sand, water). Deterministic for a given frame. Returns how many particles moved. |
 | `sandRenderRgba(cells, rgba, width:, height:)` | sync, leaf, multi-threaded | Draws the grid into RGBA8888. |
+| `pathTrace(accum, width:, height:, camera:, firstSample:, samples:, maxDepth:)` | sync, leaf, multi-threaded | Adds `samples` paths per pixel of the built-in sphere scene to `accum` (`Float64List`, 3 sums per pixel). `camera` comes from `RayCamera.toArray`, and `firstSample` (the running total) seeds the random streams. Bit-exact with `DartReference.pathTrace`. |
+| `pathResolveRgba(accum, rgba, width:, height:, sampleCount:)` | sync, leaf, multi-threaded | Average, clamp and gamma 2, written as RGBA8888. |
 | `countPrimes(int) → int` | sync, non-leaf | Number of primes ≤ limit (odd-only sieve). |
 | `dot(Float64List, Float64List) → double` | sync, leaf | Dot product with 4 accumulators so LLVM can vectorize. |
 | `threadCount` / `setThreadLimit(int)` | | Read or cap the number of Rust threads (`0` = default: one per core, at most 16). |
@@ -516,7 +527,7 @@ the radius.
 
 ## 9. Demo app
 
-`examples/fast_rust_demo` has 6 tabs. Each tab is built on first visit, so no
+`examples/fast_rust_demo` has 7 tabs. Each tab is built on first visit, so no
 heavy work runs at startup.
 
 | Tab | What it shows |
@@ -526,6 +537,7 @@ heavy work runs at startup.
 | **Paint** (coloring) | A 1024×1024 pixel-art coloring book generated by Rust. The page does not scroll, so every drag paints. Pick a color, then **tap or drag your finger** to fill regions with the flood fill; the app shows the pixel count and time of each fill. **Spread** makes each tap flow out as a wave (flat color, `paintByDistanceRgba`). **Auto** refills *N* random regions every frame (slider: 1–200) and shows **FPS** plus the fill time per frame. Switch Rust/Dart to compare on your own device. FPS also depends on image upload time, not just fill time. |
 | **Photo** (Recolor / Splash / Line art) | **Splash** turns the photo gray and each tap restores one region's colors (`recolorRegionRgba` with `strength: 0`). **Line art** turns the photo into a coloring page with `photoToColoringPage` (the *Detail* slider sets the number of colors); taps fill regions with a flat color, and **Reveal** paints every region in the photo's own colors. **Recolor**, described next, is the default mode. A real 505×607 photo, decoded once into RGBA bytes. Pick a color and **tap or drag** on the hair, the grass or the road: `recolorRegionRgba` selects similar connected pixels and tints them while keeping their brightness. With **Spread** on (the default), the color flows out from the finger frame by frame instead, and every drag step starts a new flow, like a brush. *Tolerance* and *Strength* sliders, **Undo** (20 steps), **Reset**, and **Hold: original** to compare. The caption shows the distance pass and per-frame paint times. |
 | **Sand** | A 1024×1024 falling-sand world (about a million cells). Drag to pour sand or water, draw walls, or erase. **Rain** adds two streams, **Speed** sets steps per frame (1–6), and **Scene** restores the starting ramps and cup. The caption shows step and render times. Switch to Dart to watch the FPS drop. |
+| **Ray** | Real-time path tracing at 360×360. Every frame adds 1–4 samples per pixel (slider), so the picture starts noisy and sharpens within seconds. Drag to orbit the camera, which restarts the average; double-tap to reset the view. **Depth of field** toggles the thin lens. The caption shows the sample count and ms per frame; switch to Dart to compare. |
 | **Live blur** | A 1280×800 image (itself rendered by Rust) is blurred on the UI thread on every slider move. The screen shows the time per frame against the 16.7 ms budget. If the progress spinner freezes, the UI thread is blocked. |
 
 Run it:
@@ -539,9 +551,9 @@ flutter run --profile      # representative numbers; use --release for the real 
 
 | Command | What it checks |
 |---|---|
-| `cd packages/fast_rust/rust && cargo test --release` | **23 Rust tests:**<br>• a photo with two halves becomes two framed regions with an outline between them, tiny speckles merge away, and the output is deterministic<br>• sand falls and piles up, water levels out, sand sinks through water, displaced water moves only once per step, and walls hold<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• the spreading fill covers exactly the 4-connected region, spreads as a round wave and paints each pixel once<br>• the tint keeps black, white and alpha, and recolor never writes outside the region<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
-| `cd packages/fast_rust && dart test` | **40 tests:**<br>• photo to coloring page matches the Dart reference (page, labels, palette) for four settings, is black and white with a frame, and can be filled<br>• 60 falling-sand steps match the Dart reference cell for cell on four grid sizes, material is conserved, and sand comes to rest<br>• coloring pages (including negative seeds and seeds ≥ 2⁶³) and flood fills match the Dart reference pixel for pixel, including on unaligned buffers<br>• photo recolor and spreading-fill distances and rings match the Dart reference pixel for pixel on a fractal "photo" at several tolerances<br>• Rust matches `package:crypto` and `DartReference` bit for bit<br>• views with offsets<br>• input validation<br>• the async non-leaf variants<br>• NaN order<br>• thread limits do not change results |
-| `cd examples/fast_rust_demo && flutter test` | **9 tests:**<br>• Photo splash and line-art modes: a tap restores or fills a region, and Reveal is undoable<br>• the Sand tab simulates, pours on drag without scrolling, and runs with both engines<br>• the Paint tab fills on a vertical drag (without scrolling), with Spread, and in Auto mode<br>• the Photo tab spreads a fill over several frames, recolors on drag without scrolling, and undoes each stroke<br>• Rust loads inside `flutter test`<br>• pages build lazily<br>• the fractal renders through an isolate<br>• live blur renders a frame<br>• a benchmark case runs |
+| `cd packages/fast_rust/rust && cargo test --release` | **26 Rust tests:**<br>• path tracer rays hit the right spheres and the sky; renders are deterministic and give the same bits on one or many threads<br>• a photo with two halves becomes two framed regions with an outline between them, tiny speckles merge away, and the output is deterministic<br>• sand falls and piles up, water levels out, sand sinks through water, displaced water moves only once per step, and walls hold<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• the spreading fill covers exactly the 4-connected region, spreads as a round wave and paints each pixel once<br>• the tint keeps black, white and alpha, and recolor never writes outside the region<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
+| `cd packages/fast_rust && dart test` | **43 tests:**<br>• the path tracer matches the Dart reference bit for bit for three cameras over two calls, shows sky above the floor, converges, and validates its input<br>• photo to coloring page matches the Dart reference (page, labels, palette) for four settings, is black and white with a frame, and can be filled<br>• 60 falling-sand steps match the Dart reference cell for cell on four grid sizes, material is conserved, and sand comes to rest<br>• coloring pages (including negative seeds and seeds ≥ 2⁶³) and flood fills match the Dart reference pixel for pixel, including on unaligned buffers<br>• photo recolor and spreading-fill distances and rings match the Dart reference pixel for pixel on a fractal "photo" at several tolerances<br>• Rust matches `package:crypto` and `DartReference` bit for bit<br>• views with offsets<br>• input validation<br>• the async non-leaf variants<br>• NaN order<br>• thread limits do not change results |
+| `cd examples/fast_rust_demo && flutter test` | **10 tests:**<br>• the Ray tab accumulates samples, restarts on an orbit without scrolling the page, and runs with both engines<br>• Photo splash and line-art modes: a tap restores or fills a region, and Reveal is undoable<br>• the Sand tab simulates, pours on drag without scrolling, and runs with both engines<br>• the Paint tab fills on a vertical drag (without scrolling), with Spread, and in Auto mode<br>• the Photo tab spreads a fill over several frames, recolors on drag without scrolling, and undoes each stroke<br>• Rust loads inside `flutter test`<br>• pages build lazily<br>• the fractal renders through an isolate<br>• live blur renders a frame<br>• a benchmark case runs |
 | `dart run benchmark/benchmark.dart` | Table comparing Dart, Rust 1T and Rust nT. |
 
 Lints: `cargo clippy --release --all-targets`, `dart analyze`, `flutter analyze`.
@@ -722,7 +734,7 @@ flutter test tool/video_test.dart && tool/make_video.sh               # demo vid
 |---|---|
 | `benchmark-light.svg`, `benchmark-dark.svg` | `tool/readme_images.dart`, from `docs/benchmark.json` |
 | `mandelbrot.png`, `blur-before-after.png` | `FastRust.mandelbrotRgba` and `FastRust.boxBlurRgba` |
-| `screenshot-*.png` (photo, line art, splash, sand, fractal, blur, paint) | Golden tests of the demo app, with real Roboto fonts |
+| `screenshot-*.png` (ray, photo, line art, splash, sand, fractal, blur, paint) | Golden tests of the demo app, with real Roboto fonts |
 | `docs/video/demo.mp4`, `demo.gif` | `tool/video_test.dart` records frames of the real app; `tool/make_video.sh` encodes them with ffmpeg |
 | `banner.png` | AI-generated illustration; contains no data |
 
@@ -736,7 +748,7 @@ flutter test tool/video_test.dart && tool/make_video.sh               # demo vid
 Flutter performance optimization · speed up Flutter · native assets · build hooks ·
 Flutter image processing · Flutter photo editor · recolor image · magic wand ·
 Flutter coloring app · photo to line art · coloring page generator · color splash ·
-falling sand · cellular automaton · flood fill · spreading fill · pixel art ·
+falling sand · cellular automaton · path tracing · ray tracing in Flutter · flood fill · spreading fill · pixel art ·
 coloring book · Rust cdylib · flutter_rust_bridge alternative · Dart isolate ·
 Flutter performance
 

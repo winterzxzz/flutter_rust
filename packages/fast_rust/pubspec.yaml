@@ -1,8 +1,8 @@
 name: fast_rust
 description: >-
-  Rust-powered kernels for Flutter and Dart over zero-copy dart:ffi: photo
-  recoloring, photo to coloring page, flood fill, falling sand, blur.
-version: 0.2.0
+  Rust-powered kernels for Flutter and Dart over zero-copy dart:ffi: path
+  tracing, photo recoloring, photo to coloring page, flood fill, falling sand.
+version: 0.3.0
 homepage: https://github.com/winterzxzz/flutter_rust
 repository: https://github.com/winterzxzz/flutter_rust/tree/main/packages/fast_rust
 issue_tracker: https://github.com/winterzxzz/flutter_rust/issues
@@ -14,6 +14,8 @@ topics:
   - native-assets
 
 screenshots:
+  - description: Real-time path tracing of glass and metal spheres in Flutter
+    path: doc/screenshots/ray.png
   - description: Recoloring a real photo in Flutter with Rust, texture kept
     path: doc/screenshots/photo.png
   - description: A photo turned into a coloring page by Rust, then filled
