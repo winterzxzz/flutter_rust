@@ -1,0 +1,15 @@
+# Dart / Flutter
+.dart_tool/
+build/
+
+# Rust
+target/
+
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# OS / tools
+.DS_Store
+.claude/
