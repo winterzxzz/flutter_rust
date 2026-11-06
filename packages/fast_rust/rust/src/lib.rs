@@ -11,6 +11,7 @@ pub mod hash;
 pub mod image;
 pub mod lineart;
 pub mod numeric;
+pub mod raytrace;
 pub mod sand;
 mod parallel;
 
@@ -530,6 +531,83 @@ pub unsafe extern "C" fn fr_sand_render_rgba(cells: *const u8, out: *mut u8, wid
     Status::Ok as i32
 }
 
+/// Path tracing: adds `samples` paths per pixel of the built-in scene to
+/// `accum` (`width * height * 3` f64s). `camera` points to
+/// [`raytrace::CAMERA_LEN`] f64s. Returns a [`Status`].
+///
+/// # Safety
+/// `accum` valid for `width * height * 3` writable f64s, `camera` for
+/// `CAMERA_LEN` f64s, not overlapping.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn fr_path_trace(
+    accum: *mut f64,
+    width: u32,
+    height: u32,
+    camera: *const f64,
+    first_sample: u32,
+    samples: u32,
+    max_depth: u32,
+) -> i32 {
+    if samples == 0
+        || samples > raytrace::MAX_SAMPLES
+        || max_depth == 0
+        || max_depth > raytrace::MAX_DEPTH
+        || first_sample.checked_add(samples).is_none()
+        || width as u64 * height as u64 > u32::MAX as u64
+    {
+        return Status::InvalidArgument as i32;
+    }
+    let Some(n) = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(3)) else {
+        return Status::InvalidArgument as i32;
+    };
+    let Some(bytes) = n.checked_mul(8) else {
+        return Status::InvalidArgument as i32;
+    };
+    if overlaps(accum as usize, bytes, camera as usize, raytrace::CAMERA_LEN * 8) {
+        return Status::InvalidArgument as i32;
+    }
+    let cam = try_slice!(slice(camera, raytrace::CAMERA_LEN));
+    let Some(cam) = raytrace::Camera::from_slice(cam) else {
+        return Status::InvalidArgument as i32;
+    };
+    let accum = try_slice!(slice_mut(accum, n));
+    raytrace::trace(accum, width as usize, height as usize, &cam, first_sample, samples, max_depth);
+    Status::Ok as i32
+}
+
+/// Writes the average of `sample_count` accumulated samples as RGBA8888
+/// (gamma 2). Returns a [`Status`].
+///
+/// # Safety
+/// `accum` valid for `width * height * 3` f64s, `out` for
+/// `width * height * 4` writable bytes, not overlapping.
+#[no_mangle]
+pub unsafe extern "C" fn fr_path_resolve_rgba(
+    accum: *const f64,
+    out: *mut u8,
+    width: u32,
+    height: u32,
+    sample_count: u32,
+) -> i32 {
+    let Some(n) = (width as usize).checked_mul(height as usize) else {
+        return Status::InvalidArgument as i32;
+    };
+    let (Some(alen), Some(olen)) = (n.checked_mul(3), n.checked_mul(4)) else {
+        return Status::InvalidArgument as i32;
+    };
+    let Some(abytes) = alen.checked_mul(8) else {
+        return Status::InvalidArgument as i32;
+    };
+    if overlaps(accum as usize, abytes, out as usize, olen) {
+        return Status::InvalidArgument as i32;
+    }
+    let accum = try_slice!(slice(accum, alen));
+    let out = try_slice!(slice_mut(out, olen));
+    raytrace::resolve_rgba(accum, out, width as usize, sample_count);
+    Status::Ok as i32
+}
+
 /// Sorts `data[0..len]` ascending in place using IEEE-754 total order.
 ///
 /// # Safety
@@ -627,6 +705,23 @@ mod tests {
             let mut bad = [9u8; 4];
             assert_eq!(fr_sand_step(bad.as_mut_ptr(), 2, 2, 0), -2);
             assert_eq!(fr_sand_render_rgba(cells.as_ptr(), page.as_mut_ptr(), 2, 2), 0);
+            let mut acc = [0f64; 2 * 2 * 3];
+            let mut cam = [0f64; 19];
+            cam[2] = 5.0;
+            cam[3] = -1.0;
+            cam[4] = -1.0;
+            cam[6] = 2.0;
+            cam[10] = 2.0;
+            assert_eq!(fr_path_trace(acc.as_mut_ptr(), 2, 2, cam.as_ptr(), 0, 1, 4), 0);
+            assert!(acc.iter().any(|&v| v > 0.0));
+            assert_eq!(fr_path_trace(acc.as_mut_ptr(), 2, 2, cam.as_ptr(), 0, 0, 4), -2);
+            assert_eq!(fr_path_trace(acc.as_mut_ptr(), 2, 2, cam.as_ptr(), u32::MAX, 1, 4), -2);
+            cam[0] = f64::NAN;
+            assert_eq!(fr_path_trace(acc.as_mut_ptr(), 2, 2, cam.as_ptr(), 0, 1, 4), -2);
+            assert_eq!(fr_path_trace(acc.as_mut_ptr(), 2, 2, std::ptr::null(), 0, 1, 4), -1);
+            let mut px = [0u8; 16];
+            assert_eq!(fr_path_resolve_rgba(acc.as_ptr(), px.as_mut_ptr(), 2, 2, 1), 0);
+            assert_eq!(px[3], 255);
             // 4096x4096 squares x 65536 cells is far beyond the work cap.
             assert_eq!(
                 fr_coloring_page_rgba(std::ptr::null_mut(), 4096, 4096, 65536, 1, 0),
