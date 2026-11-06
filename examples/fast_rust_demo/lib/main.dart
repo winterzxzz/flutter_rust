@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'pages/benchmark_page.dart';
 import 'pages/blur_page.dart';
 import 'pages/fractal_page.dart';
+import 'pages/paint_page.dart';
 
 void main() => runApp(const FastRustDemo());
 
@@ -39,7 +40,12 @@ class _HomePageState extends State<HomePage> {
   /// (and don't compete with the benchmark for CPU), then kept alive.
   final _visited = <int>{0};
 
-  static const _pages = [BenchmarkPage(), FractalPage(), BlurPage()];
+  static const _pages = [
+    BenchmarkPage(),
+    FractalPage(),
+    BlurPage(),
+    PaintPage(),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +55,13 @@ class _HomePageState extends State<HomePage> {
           index: _index,
           children: [
             for (var i = 0; i < _pages.length; i++)
-              _visited.contains(i) ? _pages[i] : const SizedBox.shrink(),
+              // Hidden tabs keep their state but stop animating.
+              TickerMode(
+                enabled: i == _index,
+                child: _visited.contains(i)
+                    ? _pages[i]
+                    : const SizedBox.shrink(),
+              ),
           ],
         ),
       ),
@@ -63,6 +75,10 @@ class _HomePageState extends State<HomePage> {
           NavigationDestination(icon: Icon(Icons.speed), label: 'Benchmark'),
           NavigationDestination(icon: Icon(Icons.blur_on), label: 'Fractal'),
           NavigationDestination(icon: Icon(Icons.image), label: 'Live blur'),
+          NavigationDestination(
+            icon: Icon(Icons.format_color_fill),
+            label: 'Paint',
+          ),
         ],
       ),
     );
