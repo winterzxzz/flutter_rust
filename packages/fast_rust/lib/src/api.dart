@@ -246,6 +246,114 @@ abstract final class FastRust {
     return count;
   }
 
+  /// Largest accepted number of regions for [coloringPageRgba].
+  static const maxColoringCells = 65536;
+
+  /// Largest accepted pixel-block size for [coloringPageRgba].
+  static const maxColoringBlock = 256;
+
+  /// Largest accepted `grid squares × cells` for [coloringPageRgba]
+  /// (`grid squares = ceil(width/block) × ceil(height/block)`); bounds the
+  /// cost of the brute-force region search to about a second on a phone.
+  static const maxColoringWork = 1 << 31;
+
+  /// Renders a pixel-art coloring page: [cells] Voronoi regions drawn on a
+  /// grid of [block]×[block] pixel squares, white with black outlines and a
+  /// black frame. Same [seed], same page. Non-leaf, multi-threaded.
+  /// Throws [ArgumentError] if the work exceeds [maxColoringWork].
+  static Uint8List coloringPageRgba({
+    required int width,
+    required int height,
+    int cells = 120,
+    int block = 8,
+    int seed = 1,
+  }) {
+    RangeError.checkValueInInterval(width, 0, _maxU32, 'width');
+    RangeError.checkValueInInterval(height, 0, _maxU32, 'height');
+    RangeError.checkValueInInterval(cells, 1, maxColoringCells, 'cells');
+    RangeError.checkValueInInterval(block, 1, maxColoringBlock, 'block');
+    final work =
+        ((width + block - 1) ~/ block) *
+        ((height + block - 1) ~/ block) *
+        cells;
+    if (work > maxColoringWork) {
+      throw ArgumentError(
+        'page too expensive: $work grid squares × cells > $maxColoringWork',
+      );
+    }
+    final len = width * height * 4;
+    final ptr = malloc<Uint8>(len == 0 ? 1 : len);
+    try {
+      _check(
+        'coloringPageRgba',
+        native.frColoringPageRgbaBlocking(
+          ptr,
+          width,
+          height,
+          cells,
+          block,
+          seed,
+        ),
+      );
+      return Uint8List.fromList(ptr.asTypedList(len));
+    } finally {
+      malloc.free(ptr);
+    }
+  }
+
+  /// [coloringPageRgba] on a background isolate.
+  static Future<Uint8List> coloringPageRgbaAsync({
+    required int width,
+    required int height,
+    int cells = 120,
+    int block = 8,
+    int seed = 1,
+  }) => Isolate.run(
+    () => coloringPageRgba(
+      width: width,
+      height: height,
+      cells: cells,
+      block: block,
+      seed: seed,
+    ),
+  );
+
+  /// Bucket fill: paints the 4-connected region around ([x], [y]) whose
+  /// pixels are within [tolerance] (per channel, 0..255) of the start pixel
+  /// with [color] (`0xRRGGBBAA`). Returns the number of painted pixels.
+  /// With `tolerance == 0`, a region that already has [color] is left alone
+  /// and 0 is returned; with a tolerance the region is always repainted.
+  /// Zero-copy leaf call; a solid full-HD region takes a few milliseconds.
+  static int floodFillRgba(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    required int color,
+    int tolerance = 0,
+  }) {
+    _checkImage(rgba, width, height);
+    RangeError.checkValueInInterval(x, 0, width - 1, 'x');
+    RangeError.checkValueInInterval(y, 0, height - 1, 'y');
+    RangeError.checkValueInInterval(color, 0, _maxU32, 'color');
+    RangeError.checkValueInInterval(tolerance, 0, 255, 'tolerance');
+    if (width * height > _maxU32) {
+      throw ArgumentError('image too large for flood fill: ${width}x$height');
+    }
+    final n = native.frFloodFillRgba(
+      rgba.address,
+      width,
+      height,
+      x,
+      y,
+      color,
+      tolerance,
+    );
+    if (n < 0) throw FastRustException('floodFillRgba', n);
+    return n;
+  }
+
   /// Dot product of two equally long vectors. Zero-copy leaf call.
   static double dot(Float64List a, Float64List b) {
     if (a.length != b.length) {
