@@ -5,7 +5,7 @@
 # flutter_rust: Flutter + Rust FFI để tăng tốc hiệu năng ứng dụng Flutter
 
 **Gọi Rust từ Flutter/Dart qua `dart:ffi`, không cần codegen, zero-copy, tự build bằng native assets.**
-Xử lý ảnh, hash, sort, tính toán số nhanh hơn Dart thuần **1.8× đến 22×**,
+Xử lý ảnh, **tô màu pixel-art (flood fill)**, hash, sort, tính toán số nhanh hơn Dart thuần **1.9× đến 21×**,
 được đo bằng benchmark và kiểm chứng bằng test.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white)
@@ -13,7 +13,7 @@ Xử lý ảnh, hash, sort, tính toán số nhanh hơn Dart thuần **1.8× đ�
 ![Rust](https://img.shields.io/badge/Rust-%E2%89%A51.88-B7410E?logo=rust&logoColor=white)
 ![FFI](https://img.shields.io/badge/dart%3Affi-zero--copy-6f42c1)
 ![Dependencies](https://img.shields.io/badge/Rust%20deps-0-success)
-![Tests](https://img.shields.io/badge/tests-38%20passing-success)
+![Tests](https://img.shields.io/badge/tests-48%20passing-success)
 
 [Bắt đầu nhanh](#4-bắt-đầu-nhanh) ·
 [Benchmark](#1-kết-quả-benchmark) ·
@@ -34,7 +34,7 @@ trong Flutter để tối ưu hiệu năng?"*. Dự án gồm:
   input, để bạn tự thấy khác biệt ngay trên điện thoại.
 
 Thư viện phù hợp với các việc nặng CPU trong app Flutter: **xử lý ảnh**
-(blur, grayscale, filter), **mã hoá và hash** (SHA-256), **sort dữ liệu
+(blur, grayscale, filter), **app tô màu / pixel art** (flood fill, thùng sơn), **mã hoá và hash** (SHA-256), **sort dữ liệu
 lớn**, **tính toán khoa học**, **render đồ hoạ** (fractal) hay **xử lý tín
 hiệu**. Đây là những việc mà Dart thuần, hay `compute()`/isolate, vẫn chưa
 đủ nhanh.
@@ -48,20 +48,23 @@ hiệu**. Đây là những việc mà Dart thuần, hay `compute()`/isolate, v�
   `cargo` khi `flutter run`, `flutter build` hoặc `flutter test`. Không phải
   sửa Gradle, CMake hay Podspec, cũng không phải copy `.so` hay `.dylib`
   bằng tay.
+- 🎨 **Tô màu pixel-art mượt:** flood fill một vùng đặc 2 triệu pixel mất
+  khoảng 3 ms (Dart: 12 ms); một vùng vài nghìn pixel mất cỡ 0.1 ms, đủ
+  nhanh để tô liên tục theo ngón tay.
 - 🧵 **Đa luồng thật:** Rust chia việc ra mọi lõi CPU bằng hàng đợi có cân
   bằng tải. Trên Apple M4, Mandelbrot nhanh hơn **7.3×**.
 - 📱 **Không làm giật UI:** các hàm `...Async` chạy trên isolate nền với
   *non-leaf call*, nên không chặn UI thread và không chặn GC.
-- ✅ **Kiểm chứng:** 38 test (Rust, Dart, Flutter). Kết quả Rust khớp từng
+- ✅ **Kiểm chứng:** 48 test (Rust, Dart, Flutter). Kết quả Rust khớp từng
   bit với bản Dart thuần, và khớp với `package:crypto` cho SHA-256.
 - 📦 **Gọn:** crate Rust không có dependency nào, build offline, dễ audit.
 
 <div align="center">
 
-| Khám phá fractal bằng Rust | Blur ảnh realtime trên UI thread |
-|:---:|:---:|
-| <img src="docs/images/screenshot-fractal.png" alt="App Flutter khám phá tập Mandelbrot, render bằng Rust đa luồng qua dart:ffi" width="300"/> | <img src="docs/images/screenshot-blur.png" alt="App Flutter blur ảnh 1280×800 realtime bằng Rust, 7.2 ms mỗi frame, trong budget 16.7 ms" width="300"/> |
-| Render nền bằng Rust 10 luồng; UI vẫn mượt khi zoom | Box blur 1280×800 mất **7.2 ms/frame**, nằm trong budget 60 fps |
+| Tô màu pixel-art bằng Rust | Khám phá fractal bằng Rust | Blur ảnh realtime trên UI thread |
+|:---:|:---:|:---:|
+| <img src="docs/images/screenshot-paint.png" alt="App Flutter tô màu pixel-art bằng flood fill viết bằng Rust, chạm để tô một vùng trong 0.07 ms" width="260"/> | <img src="docs/images/screenshot-fractal.png" alt="App Flutter khám phá tập Mandelbrot, render bằng Rust đa luồng qua dart:ffi" width="260"/> | <img src="docs/images/screenshot-blur.png" alt="App Flutter blur ảnh 1280×800 realtime bằng Rust, 7.2 ms mỗi frame, trong budget 16.7 ms" width="260"/> |
+| Chạm hoặc kéo để tô; một vùng ~2 400 px mất **0.07 ms** (một lần đo trong môi trường test) | Render nền bằng Rust 10 luồng; UI vẫn mượt khi zoom | Box blur 1280×800 mất **7.2 ms/frame**, nằm trong budget 60 fps |
 
 </div>
 
@@ -95,7 +98,7 @@ môi trường test của máy desktop, không phải điện thoại.*
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/benchmark-dark.svg">
-  <img src="docs/images/benchmark-light.svg" alt="Biểu đồ benchmark Flutter Rust FFI: Rust nhanh hơn Dart từ 1.8 đến 21.9 lần khi chạy 1 luồng và 10 luồng" width="100%">
+  <img src="docs/images/benchmark-light.svg" alt="Biểu đồ benchmark Flutter Rust FFI: Rust nhanh hơn Dart từ 1.9 đến 21 lần, gồm blur, flood fill tô màu, Mandelbrot, sort" width="100%">
 </picture>
 
 Máy: Apple M4 (10 luồng), macOS. Đo bằng bản AOT (`dart build cli`, tương
@@ -108,13 +111,14 @@ nằm ở [`docs/benchmark.json`](docs/benchmark.json).
 
 | Tác vụ                                     | Dart ms | Rust 1T |     × | Rust 10T |     × |
 |--------------------------------------------|--------:|--------:|------:|---------:|------:|
-| SHA-256 8 MiB (Dart: `package:crypto`)     |   35.50 |   19.43 |  1.8× |    19.36 |  1.8× |
-| Grayscale 1920×1080                        |    3.09 |    0.97 |  3.2× |     0.37 |  8.3× |
-| Box blur 1920×1080, r=12                   |   22.81 |   11.73 |  1.9× |     4.38 |  5.2× |
-| Mandelbrot 800×600, 500 vòng lặp           |  134.21 |  117.19 |  1.1× |    18.39 |  7.3× |
-| Sort 1 triệu `double` (Dart: `List.sort`)  |  264.73 |   12.09 | 21.9× |    12.12 | 21.8× |
-| Đếm số nguyên tố ≤ 20 triệu                |   22.00 |    9.06 |  2.4× |     8.20 |  2.7× |
-| Tích vô hướng 1 triệu `double`             |    0.67 |    0.30 |  2.2× |     0.31 |  2.2× |
+| SHA-256 8 MiB (Dart: `package:crypto`)     |   34.83 |   18.56 |  1.9× |    18.73 |  1.9× |
+| Grayscale 1920×1080                        |    2.31 |    0.88 |  2.6× |     0.32 |  7.2× |
+| Box blur 1920×1080, r=12                   |   21.80 |   11.26 |  1.9× |     2.65 |  8.2× |
+| Mandelbrot 800×600, 500 vòng lặp           |  127.06 |  106.28 |  1.2× |    17.51 |  7.3× |
+| Flood fill (tô màu) vùng 1920×1080         |   11.69 |    2.93 |  4.0× |     2.91 |  4.0× |
+| Sort 1 triệu `double` (Dart: `List.sort`)  |  257.32 |   12.11 | 21.2× |    12.09 | 21.3× |
+| Đếm số nguyên tố ≤ 20 triệu                |   23.24 |    9.23 |  2.5× |     9.34 |  2.5× |
+| Tích vô hướng 1 triệu `double`             |    0.69 |    0.32 |  2.2× |     0.32 |  2.1× |
 
 Chi phí một lần gọi FFI (leaf call, AOT) là khoảng **1.5 ns**. Giữa các lần
 chạy, số liệu dao động khoảng ±15%; ví dụ blur 10 luồng đo được từ 2.6 đến
@@ -122,13 +126,18 @@ chạy, số liệu dao động khoảng ±15%; ví dụ blur 10 luồng đo đ�
 
 **Đọc số liệu cho đúng:**
 
+- Flood fill là thuật toán tuần tự, không chia luồng được; mức 4× đến
+  hoàn toàn từ tốc độ trên một lõi (so sánh nguyên pixel 4 byte, tô cả
+  đoạn bằng vòng ghi đã vector hoá). Số đo dùng một vùng hình chữ nhật đặc,
+  trường hợp dễ nhất cho scanline; vùng hình dạng phức tạp tốn nhiều thời
+  gian hơn trên mỗi pixel.
 - Hai bên chạy cùng thuật toán, trừ hai trường hợp:
   - SHA-256: phía Dart là `package:crypto`.
   - Sort: phía Dart là `List.sort` (gọi closure so sánh cho mỗi phép so
-    sánh), phía Rust là pdqsort. Phần lớn mức 22× đến từ chi phí gọi hàm so
+    sánh), phía Rust là pdqsort. Phần lớn mức 21× đến từ chi phí gọi hàm so
     sánh của Dart.
 - Với vòng lặp số thực đơn giản như Mandelbrot, Dart AOT nhanh **ngang**
-  Rust trên một lõi (1.1×). Lợi thế 7.3× đến hoàn toàn từ đa luồng.
+  Rust trên một lõi (1.2×). Lợi thế 7.3× đến hoàn toàn từ đa luồng.
 - Số liệu lấy trên một máy desktop. Điện thoại sẽ khác: hãy chạy app demo ở
   `--profile` hoặc `--release` trên máy thật để có số của bạn.
 - **Khi nào không nên dùng FFI:** khi mỗi lần gọi chỉ làm vài nano-giây
@@ -153,6 +162,7 @@ flutter_rust/
 │   │       ├── hash.rs              # SHA-256 (FIPS 180-4)
 │   │       ├── image.rs             # Grayscale, box blur tách hai chiều
 │   │       ├── fractal.rs           # Mandelbrot
+│   │       ├── coloring.rs          # Sinh trang tô màu pixel-art, flood fill scanline
 │   │       └── numeric.rs           # Sort f64, sàng nguyên tố, tích vô hướng
 │   ├── hook/build.dart              # Build hook: gọi cargo cho đúng target, đăng ký CodeAsset
 │   ├── lib/
@@ -161,15 +171,15 @@ flutter_rust/
 │   │       ├── bindings.dart        # Khai báo @Native (leaf và non-leaf)
 │   │       ├── api.dart             # API an toàn: class FastRust
 │   │       └── dart_reference.dart  # Cùng thuật toán viết bằng Dart thuần (oracle và baseline)
-│   ├── test/fast_rust_test.dart     # 22 test đúng/sai, validation, async
+│   ├── test/fast_rust_test.dart     # 28 test đúng/sai, validation, async, tô màu
 │   ├── benchmark/benchmark.dart     # Benchmark dòng lệnh (--json để xuất số liệu)
 │   └── tool/readme_images.dart      # Tạo biểu đồ và ảnh cho README từ output thật
 └── examples/fast_rust_demo/         # App Flutter demo
     ├── lib/
-    │   ├── main.dart                # 3 tab, trang được build khi mở lần đầu
+    │   ├── main.dart                # 4 tab, trang được build khi mở lần đầu
     │   ├── benchmarks.dart          # Các ca benchmark chạy trên isolate nền
     │   ├── engine.dart              # Enum Rust/Dart, chuyển RGBA sang ui.Image
-    │   └── pages/                   # benchmark_page, fractal_page, blur_page
+    │   └── pages/                   # benchmark_page, fractal_page, blur_page, paint_page
     ├── test/app_test.dart           # Widget test (load Rust thật qua native assets)
     └── tool/screenshots_test.dart   # Chụp màn hình app cho README (golden)
 docs/
@@ -260,6 +270,11 @@ final Uint8List fractal = await FastRust.mandelbrotRgbaAsync(
   maxIterations: 500,
 );
 
+// Tô màu pixel-art: sinh trang rồi "đổ sơn" vào vùng được chạm
+final page = FastRust.coloringPageRgba(width: 1024, height: 1024, cells: 140, block: 8);
+final painted = FastRust.floodFillRgba(page,
+    width: 1024, height: 1024, x: tapX, y: tapY, color: 0x2A9D8FFF);
+
 // Sort tại chỗ (thứ tự tổng IEEE-754)
 FastRust.sortFloat64(values);
 final sorted = await FastRust.sortFloat64Async(hugeList);   // trả về bản sao đã sort
@@ -289,6 +304,9 @@ Mọi thứ nằm trong `abstract final class FastRust`.
 | `mandelbrotRgbaAsync(...) → Future<Uint8List>` | isolate nền, non-leaf | Như trên, chạy nền. |
 | `sortFloat64(Float64List)` | sync, leaf, tại chỗ | pdqsort theo `f64::total_cmp`. |
 | `sortFloat64Async(Float64List) → Future<Float64List>` | isolate nền, non-leaf | Trả về bản sao đã sort. |
+| `coloringPageRgba(width:, height:, cells:, block:, seed:) → Uint8List` | sync, non-leaf, đa luồng | Sinh trang tô màu pixel-art: `cells` vùng Voronoi trên lưới ô `block`×`block` px, viền đen. Cùng `seed` thì cùng trang. |
+| `coloringPageRgbaAsync(...) → Future<Uint8List>` | isolate nền, non-leaf | Như trên, chạy nền. |
+| `floodFillRgba(rgba, width:, height:, x:, y:, color:, tolerance:) → int` | sync, leaf, tại chỗ | "Thùng sơn": tô vùng liên thông 4 hướng quanh (x, y) bằng `color` (`0xRRGGBBAA`); `tolerance` 0–255 cho mỗi kênh. Trả về số pixel đã tô (0 nếu `tolerance` = 0 và vùng đã có sẵn màu đó). |
 | `countPrimes(int) → int` | sync, non-leaf | Số số nguyên tố ≤ limit (sàng chỉ xét số lẻ). |
 | `dot(Float64List, Float64List) → double` | sync, leaf | Tích vô hướng, 4 accumulator để LLVM vector hoá. |
 | `threadCount` / `setThreadLimit(int)` | | Đọc hoặc giới hạn số luồng Rust (`0` là mặc định: số lõi, tối đa 16). |
@@ -300,6 +318,8 @@ Mọi thứ nằm trong `abstract final class FastRust`.
 |---|---|---|
 | `FastRust.maxBlurRadius` | 1024 | Tổng cửa sổ không tràn `u32`, chặn trên thời gian chạy. |
 | `FastRust.maxIterations` | 2²⁰ | Tránh treo vì số vòng lặp quá lớn. |
+| `FastRust.maxColoringCells` / `maxColoringBlock` | 65 536 / 256 | Giới hạn tham số của trang tô màu. |
+| `FastRust.maxColoringWork` | 2³¹ | Tổng số ô lưới × số vùng (chi phí tìm vùng gần nhất); vượt quá sẽ ném `ArgumentError`. Chặn trên thời gian sinh trang. |
 | `FastRust.maxPrimeLimit` | 2³¹ − 1 | Sàng cần `limit/2` byte (tối đa 1 GiB). Cấp phát thất bại sẽ ném `FastRustException`, app không bị abort. |
 
 **Thứ tự NaN khi sort:** `-NaN < -∞ < … < -0.0 < 0.0 < … < ∞ < NaN`. Khác
@@ -328,9 +348,9 @@ Thư viện chọn như sau:
 
 | Trường hợp | Kiểu gọi |
 |---|---|
-| Hàm sync trên buffer của bạn (`sha256`, `boxBlurRgba`, `grayscaleRgba`, `sortFloat64`, `dot`) | **leaf**, zero-copy. Chỉ dùng cho việc vài mili-giây, ví dụ blur mỗi frame trong demo. |
+| Hàm sync trên buffer của bạn (`sha256`, `boxBlurRgba`, `grayscaleRgba`, `floodFillRgba`, `sortFloat64`, `dot`) | **leaf**, zero-copy. Chỉ dùng cho việc vài mili-giây, ví dụ blur mỗi frame trong demo. |
 | `...Async` | isolate nền, copy sang bộ nhớ native, gọi **non-leaf**, copy kết quả về. Dùng cho việc dài. |
-| `mandelbrotRgba`, `countPrimes` | luôn **non-leaf**, vì chỉ ghi ra hoặc không có buffer. |
+| `mandelbrotRgba`, `coloringPageRgba`, `countPrimes` | luôn **non-leaf**, vì chỉ ghi ra hoặc không có buffer. |
 
 Quy tắc ngón tay cái: nếu một lần gọi có thể vượt quá khoảng 4 ms trên
 điện thoại (một phần tư budget 16.7 ms của một frame), hãy dùng bản `Async`.
@@ -399,13 +419,14 @@ Nhờ vậy chi phí không phụ thuộc radius.
 
 ## 9. App demo
 
-`examples/fast_rust_demo` có 3 tab. Mỗi tab chỉ build khi được mở lần đầu,
+`examples/fast_rust_demo` có 4 tab. Mỗi tab chỉ build khi được mở lần đầu,
 để việc nặng không chạy lúc khởi động.
 
 | Tab | Chứng minh điều gì |
 |---|---|
 | **Benchmark** | Bấm *Run all*: từng ca chạy Dart và Rust trên isolate nền, rồi hiện thanh so sánh và hệ số nhanh hơn. Nếu đang ở bản debug, app có cảnh báo. |
 | **Fractal** | Khám phá Mandelbrot ở độ phân giải màn hình (tối đa 1200 px). Chạm để zoom vào, nhấn giữ để zoom ra, chỉnh số vòng lặp, đổi engine Rust hoặc Dart và xem số ms. Render chạy trên isolate nền với non-leaf call, nên UI luôn mượt. |
+| **Paint** (tô màu) | Sách tô màu pixel-art 1024×1024 do Rust sinh ra. Trang này không cuộn, để mọi cú kéo đều là tô. Chọn màu, rồi **chạm hoặc kéo ngón tay** để tô từng vùng bằng flood fill; app hiện số pixel và thời gian mỗi lần tô. Nút **Auto** tô lại *N* vùng ngẫu nhiên mỗi frame (thanh trượt 1–200) và hiện **FPS** cùng thời gian tô mỗi frame. Đổi Rust/Dart để so trực tiếp trên chính thiết bị của bạn; số FPS phụ thuộc cả thời gian upload ảnh, không chỉ thời gian tô. |
 | **Live blur** | Ảnh 1280×800 (chính ảnh này cũng do Rust render), blur ngay trên UI thread mỗi lần kéo slider. Màn hình hiện số ms mỗi frame so với budget 16.7 ms. Vòng xoay tiến trình đứng hình nghĩa là UI thread đang bị chặn. |
 
 Chạy:
@@ -419,9 +440,9 @@ flutter run --profile      # số đo đại diện; dùng --release để trả
 
 | Lệnh | Kiểm tra gì |
 |---|---|
-| `cd packages/fast_rust/rust && cargo test --release` | 11 test Rust: vector NIST của SHA-256, blur khớp bản naive O(r²) kể cả radius lớn hơn ảnh, bản song song khớp bản tuần tự, NaN, sàng nguyên tố, FFI từ chối null và kích thước sai. |
-| `cd packages/fast_rust && dart test` | 22 test: Rust khớp `package:crypto` và `DartReference` từng bit, view có offset, validation, các bản async non-leaf, thứ tự NaN, giới hạn luồng không đổi kết quả. |
-| `cd examples/fast_rust_demo && flutter test` | 5 test: Rust load được trong `flutter test`, trang build lazy, fractal render qua isolate, live blur render frame, ca benchmark chạy được. |
+| `cd packages/fast_rust/rust && cargo test --release` | 14 test Rust: flood fill khớp BFS trên trang tô màu ngẫu nhiên, tolerance; vector NIST của SHA-256, blur khớp bản naive O(r²) kể cả radius lớn hơn ảnh, bản song song khớp bản tuần tự, NaN, sàng nguyên tố, FFI từ chối null và kích thước sai. |
+| `cd packages/fast_rust && dart test` | 28 test: trang tô màu (kể cả seed âm hay ≥ 2⁶³) và flood fill khớp bản Dart từng pixel, kể cả buffer lệch căn chỉnh; Rust khớp `package:crypto` và `DartReference` từng bit, view có offset, validation, các bản async non-leaf, thứ tự NaN, giới hạn luồng không đổi kết quả. |
+| `cd examples/fast_rust_demo && flutter test` | 6 test: tab Paint tô bằng cú kéo dọc (không cuộn trang) và chế độ Auto; Rust load được trong `flutter test`, trang build lazy, fractal render qua isolate, live blur render frame, ca benchmark chạy được. |
 | `dart run benchmark/benchmark.dart` | Bảng so sánh Dart, Rust 1T và Rust nT. |
 
 Kiểm tra lint: `cargo clippy --release --all-targets`, `dart analyze`,
@@ -532,7 +553,7 @@ hàm native trực tiếp và đồng bộ, khoảng 1.5 ns mỗi lần. Với d
 <summary><b>Rust có luôn nhanh hơn Dart không?</b></summary>
 
 Không. Dart AOT đã khá nhanh với vòng lặp số học đơn giản: Mandelbrot trên 1
-lõi chỉ nhanh hơn 1.1×. Rust thắng rõ khi:
+lõi chỉ nhanh hơn 1.2×. Rust thắng rõ khi:
 
 - dùng được đa luồng;
 - thuật toán hưởng lợi từ tối ưu của LLVM (sort, SHA-256);
@@ -557,6 +578,17 @@ Build hook đã có logic cho Android (arm64, armv7, x86_64, x86), iOS (máy
 thật và simulator), macOS, Linux và Windows. Hiện mới **kiểm chứng trên
 macOS**; Android và iOS chưa được build thử. Xem
 [mục 13](#13-trạng-thái-kiểm-chứng-và-giới-hạn).
+</details>
+
+<details>
+<summary><b>Làm app tô màu (coloring book, pixel art) bằng Flutter có mượt không?</b></summary>
+
+Có. `FastRust.floodFillRgba` tô một vùng đặc 2 triệu pixel trong khoảng 3
+ms, so với 12 ms bằng Dart thuần (đo trên desktop). Một vùng cỡ vài nghìn pixel chỉ mất dưới 0.1 ms. Với
+tốc độ đó bạn có thể tô ngay trong `onPanUpdate` khi người dùng kéo ngón
+tay mà không bị trễ. Xem tab **Paint** trong app demo
+(`examples/fast_rust_demo/lib/pages/paint_page.dart`) để có ví dụ hoàn chỉnh:
+chọn màu, chạm, kéo, chế độ Auto kèm bộ đếm FPS.
 </details>
 
 <details>
@@ -586,7 +618,7 @@ flutter test tool/screenshots_test.dart --update-goldens              # ảnh ch
 |---|---|
 | `benchmark-light.svg`, `benchmark-dark.svg` | `tool/readme_images.dart`, đọc `docs/benchmark.json` |
 | `mandelbrot.png`, `blur-before-after.png` | `FastRust.mandelbrotRgba` và `FastRust.boxBlurRgba` |
-| `screenshot-*.png` | golden test của app demo, dùng font Roboto thật |
+| `screenshot-*.png` (fractal, blur, paint) | golden test của app demo, dùng font Roboto thật |
 | `banner.png` | ảnh minh hoạ do AI tạo, không chứa số liệu |
 
 ---
@@ -597,7 +629,8 @@ flutter test tool/screenshots_test.dart --update-goldens              # ảnh ch
 
 **Từ khoá:** Flutter Rust · Flutter FFI · dart:ffi · gọi Rust từ Flutter ·
 tối ưu hiệu năng Flutter · tăng tốc Flutter · native assets · build hooks ·
-xử lý ảnh Flutter · Flutter image processing · Rust cdylib · flutter_rust_bridge
+xử lý ảnh Flutter · Flutter image processing · app tô màu Flutter · flood fill ·
+pixel art · coloring book · Rust cdylib · flutter_rust_bridge
 alternative · Dart isolate · Flutter performance
 
 Nếu thấy hữu ích, hãy ⭐ repo để nhiều người tìm thấy hơn.
