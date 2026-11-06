@@ -2,6 +2,7 @@
 //
 //   dart run benchmark/benchmark.dart              # JIT (like debug builds)
 //   dart build cli -t benchmark/benchmark.dart     # AOT (like release builds)
+//   .../bundle/bin/benchmark --json=results.json   # also write raw results
 //
 // Each case is warmed up, then timed repeatedly; the median is reported.
 // Rust is measured on 1 thread (per-core speed) and on all threads.
@@ -9,6 +10,8 @@
 // depend on pixel values, so no per-run copy pollutes the timing. Sort must
 // start unsorted, so both sides pay the same 8 MB copy per run.
 
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -34,6 +37,7 @@ double _medianMs(void Function() body, {int runs = 9}) {
 }
 
 final _rows = <List<String>>[];
+final _results = <Map<String, Object>>[];
 
 /// Times Dart, Rust on one thread, and Rust on all threads.
 void _case(String name, void Function() dart, void Function() rust) {
@@ -42,6 +46,7 @@ void _case(String name, void Function() dart, void Function() rust) {
   final r1 = _medianMs(rust);
   FastRust.setThreadLimit(0);
   final r = _medianMs(rust);
+  _results.add({'name': name, 'dartMs': d, 'rust1Ms': r1, 'rustAllMs': r});
   _rows.add([
     name,
     d.toStringAsFixed(2),
@@ -52,7 +57,7 @@ void _case(String name, void Function() dart, void Function() rust) {
   ]);
 }
 
-void main() {
+void main(List<String> args) {
   final rnd = Random(1);
   print('fast_rust benchmark — Rust threads: ${FastRust.threadCount}\n');
 
@@ -154,4 +159,19 @@ void main() {
   print(fmt(header));
   print(widths.map((n) => '-' * n).join('  '));
   _rows.map(fmt).forEach(print);
+
+  for (final arg in args) {
+    if (arg.startsWith('--json=')) {
+      final file = File(arg.substring('--json='.length));
+      file.writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert({
+          'threads': FastRust.threadCount,
+          'callOverheadNs': ns,
+          'os': Platform.operatingSystem,
+          'cases': _results,
+        }),
+      );
+      print('\nWrote ${file.path}');
+    }
+  }
 }
