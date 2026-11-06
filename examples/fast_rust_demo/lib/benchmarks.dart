@@ -73,6 +73,30 @@ final benchCases = <BenchCase>[
       ),
     );
   }),
+  BenchCase('Flood fill', '1920×1080 region (bucket fill)', () {
+    final canvas = Uint8List(1920 * 1080 * 4)
+      ..fillRange(0, 1920 * 1080 * 4, 255);
+    var flip = false;
+    int next() => (flip = !flip) ? 0xff0000ff : 0x00ff00ff;
+    return (
+      () => DartReference.floodFillRgba(
+        canvas,
+        width: 1920,
+        height: 1080,
+        x: 960,
+        y: 540,
+        color: next(),
+      ),
+      () => FastRust.floodFillRgba(
+        canvas,
+        width: 1920,
+        height: 1080,
+        x: 960,
+        y: 540,
+        color: next(),
+      ),
+    );
+  }),
   BenchCase('Sort', '1,000,000 doubles (Dart: List.sort)', () {
     final src = _doubles(1000000, 2);
     final work = Float64List(src.length);
