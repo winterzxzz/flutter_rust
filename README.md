@@ -1,18 +1,73 @@
-# flutter_rust
+<div align="center">
 
-Thư viện **`fast_rust`** đưa các đoạn code nặng của Flutter/Dart sang **Rust**
-để tăng hiệu năng. Kèm theo là app **`fast_rust_demo`**, chứng minh bằng số đo
-thật: chạy Dart và Rust cạnh nhau trên cùng input, cùng thuật toán.
+<img src="docs/images/banner.png" alt="flutter_rust: thư viện Flutter + Rust FFI giúp tăng tốc hiệu năng ứng dụng Flutter" width="100%"/>
 
-- Không codegen, không serialize. Dart gọi Rust qua `dart:ffi` `@Native`,
-  truyền thẳng địa chỉ buffer (zero-copy). Mỗi lần gọi tốn khoảng **1.5 ns**.
-- Không cần chỉnh Gradle, CMake hay Podspec. Build hook của Dart
-  (*native assets*) tự gọi `cargo` cho đúng nền tảng mỗi khi bạn
-  `flutter run`, `flutter build`, `flutter test`, `dart run` hay `dart test`.
-- Crate Rust không có dependency nào: build offline, nhanh, dễ audit.
-- Đa luồng thật bằng `std::thread::scope` và hàng đợi việc có cân bằng tải.
-- Kết quả Rust được kiểm tra khớp **từng bit** với bản Dart thuần, và với
-  `package:crypto` cho SHA-256.
+# flutter_rust: Flutter + Rust FFI để tăng tốc hiệu năng ứng dụng Flutter
+
+**Gọi Rust từ Flutter/Dart qua `dart:ffi`, không cần codegen, zero-copy, tự build bằng native assets.**
+Xử lý ảnh, hash, sort, tính toán số nhanh hơn Dart thuần **1.8× đến 22×**,
+được đo bằng benchmark và kiểm chứng bằng test.
+
+![Flutter](https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-%E2%89%A53.10-0175C2?logo=dart&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-%E2%89%A51.88-B7410E?logo=rust&logoColor=white)
+![FFI](https://img.shields.io/badge/dart%3Affi-zero--copy-6f42c1)
+![Dependencies](https://img.shields.io/badge/Rust%20deps-0-success)
+![Tests](https://img.shields.io/badge/tests-38%20passing-success)
+
+[Bắt đầu nhanh](#4-bắt-đầu-nhanh) ·
+[Benchmark](#1-kết-quả-benchmark) ·
+[API](#6-api) ·
+[App demo](#9-app-demo) ·
+[Câu hỏi thường gặp](#14-câu-hỏi-thường-gặp-faq)
+
+</div>
+
+---
+
+**flutter_rust** là một dự án mẫu hoàn chỉnh cho câu hỏi *"làm sao dùng Rust
+trong Flutter để tối ưu hiệu năng?"*. Dự án gồm:
+
+- **`fast_rust`**: thư viện Dart/Flutter. Phần tính toán nặng viết bằng Rust,
+  Dart gọi trực tiếp qua `dart:ffi` `@Native`.
+- **`fast_rust_demo`**: app Flutter chạy Dart và Rust cạnh nhau trên cùng
+  input, để bạn tự thấy khác biệt ngay trên điện thoại.
+
+Thư viện phù hợp với các việc nặng CPU trong app Flutter: **xử lý ảnh**
+(blur, grayscale, filter), **mã hoá và hash** (SHA-256), **sort dữ liệu
+lớn**, **tính toán khoa học**, **render đồ hoạ** (fractal) hay **xử lý tín
+hiệu**. Đây là những việc mà Dart thuần, hay `compute()`/isolate, vẫn chưa
+đủ nhanh.
+
+### Điểm nổi bật
+
+- ⚡ **Nhanh:** mỗi lần gọi FFI chỉ tốn khoảng **1.5 ns**. Rust đọc và ghi
+  thẳng vào `Uint8List`/`Float64List` của Dart, không copy, không serialize
+  như *platform channel*.
+- 🔧 **Không cần cấu hình native:** build hook (*native assets*) tự gọi
+  `cargo` khi `flutter run`, `flutter build` hoặc `flutter test`. Không phải
+  sửa Gradle, CMake hay Podspec, cũng không phải copy `.so` hay `.dylib`
+  bằng tay.
+- 🧵 **Đa luồng thật:** Rust chia việc ra mọi lõi CPU bằng hàng đợi có cân
+  bằng tải. Trên Apple M4, Mandelbrot nhanh hơn **7.3×**.
+- 📱 **Không làm giật UI:** các hàm `...Async` chạy trên isolate nền với
+  *non-leaf call*, nên không chặn UI thread và không chặn GC.
+- ✅ **Kiểm chứng:** 38 test (Rust, Dart, Flutter). Kết quả Rust khớp từng
+  bit với bản Dart thuần, và khớp với `package:crypto` cho SHA-256.
+- 📦 **Gọn:** crate Rust không có dependency nào, build offline, dễ audit.
+
+<div align="center">
+
+| Khám phá fractal bằng Rust | Blur ảnh realtime trên UI thread |
+|:---:|:---:|
+| <img src="docs/images/screenshot-fractal.png" alt="App Flutter khám phá tập Mandelbrot, render bằng Rust đa luồng qua dart:ffi" width="300"/> | <img src="docs/images/screenshot-blur.png" alt="App Flutter blur ảnh 1280×800 realtime bằng Rust, 7.2 ms mỗi frame, trong budget 16.7 ms" width="300"/> |
+| Render nền bằng Rust 10 luồng; UI vẫn mượt khi zoom | Box blur 1280×800 mất **7.2 ms/frame**, nằm trong budget 60 fps |
+
+</div>
+
+*Ảnh chụp app thật, render headless bằng `flutter test`; xem
+[mục 15](#15-tái-tạo-ảnh-và-số-liệu-trong-readme). Số ms trong ảnh đo trong
+môi trường test của máy desktop, không phải điện thoại.*
 
 ---
 
@@ -31,13 +86,21 @@ thật: chạy Dart và Rust cạnh nhau trên cùng input, cùng thuật toán.
 11. [Thêm một hàm Rust mới](#11-thêm-một-hàm-rust-mới)
 12. [Xử lý sự cố](#12-xử-lý-sự-cố)
 13. [Trạng thái kiểm chứng và giới hạn](#13-trạng-thái-kiểm-chứng-và-giới-hạn)
+14. [Câu hỏi thường gặp (FAQ)](#14-câu-hỏi-thường-gặp-faq)
+15. [Tái tạo ảnh và số liệu trong README](#15-tái-tạo-ảnh-và-số-liệu-trong-readme)
 
 ---
 
 ## 1. Kết quả benchmark
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/benchmark-dark.svg">
+  <img src="docs/images/benchmark-light.svg" alt="Biểu đồ benchmark Flutter Rust FFI: Rust nhanh hơn Dart từ 1.8 đến 21.9 lần khi chạy 1 luồng và 10 luồng" width="100%">
+</picture>
+
 Máy: Apple M4 (10 luồng), macOS. Đo bằng bản AOT (`dart build cli`, tương
-đương build release), lấy median của 9 lần chạy sau khi warm-up.
+đương build release), lấy median của 9 lần chạy sau khi warm-up. Số liệu gốc
+nằm ở [`docs/benchmark.json`](docs/benchmark.json).
 
 - **Rust 1T**: Rust bị giới hạn 1 luồng, để đo tốc độ trên một lõi.
 - **Rust 10T**: Rust dùng toàn bộ luồng.
@@ -45,30 +108,37 @@ Máy: Apple M4 (10 luồng), macOS. Đo bằng bản AOT (`dart build cli`, tư�
 
 | Tác vụ                                     | Dart ms | Rust 1T |     × | Rust 10T |     × |
 |--------------------------------------------|--------:|--------:|------:|---------:|------:|
-| SHA-256 8 MiB (Dart: `package:crypto`)     |   34.51 |   18.73 |  1.8× |    18.74 |  1.8× |
-| Grayscale 1920×1080                        |    2.32 |    0.89 |  2.6× |     0.36 |  6.5× |
-| Box blur 1920×1080, r=12                   |   23.61 |   11.46 |  2.1× |     2.63 |  9.0× |
-| Mandelbrot 800×600, 500 vòng lặp           |  117.63 |  117.21 |  1.0× |    19.08 |  6.2× |
-| Sort 1 triệu `double` (Dart: `List.sort`)  |  267.21 |   12.40 | 21.5× |    12.65 | 21.1× |
-| Đếm số nguyên tố ≤ 20 triệu                |   23.74 |    8.78 |  2.7× |     8.94 |  2.7× |
-| Tích vô hướng 1 triệu `double`             |    0.70 |    0.34 |  2.1× |     0.33 |  2.1× |
+| SHA-256 8 MiB (Dart: `package:crypto`)     |   35.50 |   19.43 |  1.8× |    19.36 |  1.8× |
+| Grayscale 1920×1080                        |    3.09 |    0.97 |  3.2× |     0.37 |  8.3× |
+| Box blur 1920×1080, r=12                   |   22.81 |   11.73 |  1.9× |     4.38 |  5.2× |
+| Mandelbrot 800×600, 500 vòng lặp           |  134.21 |  117.19 |  1.1× |    18.39 |  7.3× |
+| Sort 1 triệu `double` (Dart: `List.sort`)  |  264.73 |   12.09 | 21.9× |    12.12 | 21.8× |
+| Đếm số nguyên tố ≤ 20 triệu                |   22.00 |    9.06 |  2.4× |     8.20 |  2.7× |
+| Tích vô hướng 1 triệu `double`             |    0.67 |    0.30 |  2.2× |     0.31 |  2.2× |
 
-Chi phí một lần gọi FFI (leaf call, AOT) là khoảng **1.5 ns**.
+Chi phí một lần gọi FFI (leaf call, AOT) là khoảng **1.5 ns**. Giữa các lần
+chạy, số liệu dao động khoảng ±15%; ví dụ blur 10 luồng đo được từ 2.6 đến
+4.8 ms.
 
 **Đọc số liệu cho đúng:**
 
 - Hai bên chạy cùng thuật toán, trừ hai trường hợp:
   - SHA-256: phía Dart là `package:crypto`.
   - Sort: phía Dart là `List.sort` (gọi closure so sánh cho mỗi phép so
-    sánh), phía Rust là pdqsort. Phần lớn mức 21× đến từ chi phí gọi hàm so
+    sánh), phía Rust là pdqsort. Phần lớn mức 22× đến từ chi phí gọi hàm so
     sánh của Dart.
 - Với vòng lặp số thực đơn giản như Mandelbrot, Dart AOT nhanh **ngang**
-  Rust trên một lõi. Lợi thế 6.2× đến hoàn toàn từ đa luồng.
+  Rust trên một lõi (1.1×). Lợi thế 7.3× đến hoàn toàn từ đa luồng.
 - Số liệu lấy trên một máy desktop. Điện thoại sẽ khác: hãy chạy app demo ở
   `--profile` hoặc `--release` trên máy thật để có số của bạn.
 - **Khi nào không nên dùng FFI:** khi mỗi lần gọi chỉ làm vài nano-giây
   việc. Lợi ích đến từ việc chuyển *cả vòng lặp* sang Rust, không phải từng
   phép tính lẻ.
+
+<p align="center">
+  <img src="docs/images/blur-before-after.png" alt="So sánh trước và sau khi blur ảnh bằng Rust trong Flutter: bên trái ảnh gốc, bên phải box blur radius 18" width="100%"/>
+  <br/><sub>Trước và sau <code>FastRust.boxBlurRgba</code> (radius 18). Ảnh gốc cũng do <code>FastRust.mandelbrotRgba</code> render.</sub>
+</p>
 
 ## 2. Cấu trúc thư mục
 
@@ -92,14 +162,19 @@ flutter_rust/
 │   │       ├── api.dart             # API an toàn: class FastRust
 │   │       └── dart_reference.dart  # Cùng thuật toán viết bằng Dart thuần (oracle và baseline)
 │   ├── test/fast_rust_test.dart     # 22 test đúng/sai, validation, async
-│   └── benchmark/benchmark.dart     # Benchmark dòng lệnh
+│   ├── benchmark/benchmark.dart     # Benchmark dòng lệnh (--json để xuất số liệu)
+│   └── tool/readme_images.dart      # Tạo biểu đồ và ảnh cho README từ output thật
 └── examples/fast_rust_demo/         # App Flutter demo
     ├── lib/
     │   ├── main.dart                # 3 tab, trang được build khi mở lần đầu
     │   ├── benchmarks.dart          # Các ca benchmark chạy trên isolate nền
     │   ├── engine.dart              # Enum Rust/Dart, chuyển RGBA sang ui.Image
     │   └── pages/                   # benchmark_page, fractal_page, blur_page
-    └── test/app_test.dart           # Widget test (load Rust thật qua native assets)
+    ├── test/app_test.dart           # Widget test (load Rust thật qua native assets)
+    └── tool/screenshots_test.dart   # Chụp màn hình app cho README (golden)
+docs/
+├── benchmark.json                   # Số đo gốc dùng cho bảng và biểu đồ
+└── images/                          # Banner, biểu đồ, ảnh chụp app, ảnh render bằng Rust
 ```
 
 ## 3. Yêu cầu
@@ -350,7 +425,8 @@ flutter run --profile      # số đo đại diện; dùng --release để trả
 | `dart run benchmark/benchmark.dart` | Bảng so sánh Dart, Rust 1T và Rust nT. |
 
 Kiểm tra lint: `cargo clippy --release --all-targets`, `dart analyze`,
-`flutter analyze`.
+`flutter analyze`. Ảnh chụp app không nằm trong bộ test thường; chúng được
+tạo riêng bằng `flutter test tool/screenshots_test.dart --update-goldens`.
 
 ## 11. Thêm một hàm Rust mới
 
@@ -414,3 +490,116 @@ nhưng chưa chạy trên các nền tảng này.
 - Nhiều isolate cùng gọi hàm song song cùng lúc có thể tranh nhau lõi CPU.
 - Hàm sync dạng leaf vẫn tạm dừng GC trong lúc chạy (xem mục 7).
 - Chưa có giấy phép (license) cho dự án.
+
+## 14. Câu hỏi thường gặp (FAQ)
+
+<details open>
+<summary><b>Làm sao gọi code Rust từ Flutter?</b></summary>
+
+1. Biên dịch Rust thành thư viện động (`cdylib`), xuất hàm
+   `extern "C"`.
+2. Khai báo hàm đó trong Dart bằng `@Native` của `dart:ffi`.
+3. Dùng build hook (native assets) để Flutter tự build và đóng gói thư viện
+   cho từng nền tảng.
+
+Dự án này làm sẵn cả ba bước. Xem [mục 8](#8-kiến-trúc-và-cách-hoạt-động)
+và [mục 11](#11-thêm-một-hàm-rust-mới).
+</details>
+
+<details>
+<summary><b>Có cần <code>flutter_rust_bridge</code> không?</b></summary>
+
+Không bắt buộc. `flutter_rust_bridge` mạnh khi bạn cần truyền kiểu dữ liệu
+phức tạp (struct, enum, `String`, stream, async Rust) và muốn sinh binding
+tự động. Dự án này chọn cách viết tay tối giản, phù hợp khi các hàm làm
+việc trên buffer số (ảnh, mảng `double`, byte):
+
+- không có bước codegen;
+- không có dependency phía Rust;
+- con trỏ đi thẳng vào buffer Dart, nên chi phí gọi gần như bằng không.
+</details>
+
+<details>
+<summary><b>FFI khác gì platform channel (MethodChannel)?</b></summary>
+
+Platform channel gửi message bất đồng bộ qua Kotlin/Swift và phải
+serialize dữ liệu, nên mỗi lần gọi tốn cỡ micro-giây đến mili-giây. FFI gọi
+hàm native trực tiếp và đồng bộ, khoảng 1.5 ns mỗi lần. Với dữ liệu lớn như
+ảnh, FFI còn tránh được việc copy.
+</details>
+
+<details>
+<summary><b>Rust có luôn nhanh hơn Dart không?</b></summary>
+
+Không. Dart AOT đã khá nhanh với vòng lặp số học đơn giản: Mandelbrot trên 1
+lõi chỉ nhanh hơn 1.1×. Rust thắng rõ khi:
+
+- dùng được đa luồng;
+- thuật toán hưởng lợi từ tối ưu của LLVM (sort, SHA-256);
+- tránh được overhead của Dart (closure so sánh, kiểm tra biên).
+
+Hãy đo trước khi chuyển code.
+</details>
+
+<details>
+<summary><b>Gọi Rust có làm UI Flutter bị giật không?</b></summary>
+
+Có thể, nếu bạn gọi hàm sync cho việc dài. Hàm sync là *leaf call*: nó chặn
+isolate đang gọi và tạm dừng GC của cả nhóm isolate. Với việc trên vài
+mili-giây, hãy dùng các hàm `...Async`: chúng chạy trên isolate nền với
+non-leaf call, không chặn UI hay GC. Xem [mục 7](#7-sync-hay-async-quy-tắc-leaf-call).
+</details>
+
+<details>
+<summary><b>Có chạy trên Android và iOS không?</b></summary>
+
+Build hook đã có logic cho Android (arm64, armv7, x86_64, x86), iOS (máy
+thật và simulator), macOS, Linux và Windows. Hiện mới **kiểm chứng trên
+macOS**; Android và iOS chưa được build thử. Xem
+[mục 13](#13-trạng-thái-kiểm-chứng-và-giới-hạn).
+</details>
+
+<details>
+<summary><b>Dùng được cho xử lý ảnh từ camera hay file không?</b></summary>
+
+Được. Mọi hàm ảnh nhận buffer **RGBA8888** (`Uint8List`, dài
+`width × height × 4`). Bạn có thể lấy buffer từ `ui.Image.toByteData(format:
+ImageByteFormat.rawRgba)` hoặc từ frame camera sau khi chuyển sang RGBA.
+</details>
+
+## 15. Tái tạo ảnh và số liệu trong README
+
+Mọi ảnh trong `docs/images` (trừ banner) được tạo từ chính thư viện, nên bạn
+có thể tự kiểm tra lại:
+
+```sh
+cd packages/fast_rust
+dart build cli -t benchmark/benchmark.dart
+./build/cli/*/bundle/bin/benchmark --json=../../docs/benchmark.json   # số đo
+dart run tool/readme_images.dart ../../docs                           # biểu đồ SVG, fractal, blur
+
+cd ../../examples/fast_rust_demo
+flutter test tool/screenshots_test.dart --update-goldens              # ảnh chụp app
+```
+
+| Ảnh | Nguồn |
+|---|---|
+| `benchmark-light.svg`, `benchmark-dark.svg` | `tool/readme_images.dart`, đọc `docs/benchmark.json` |
+| `mandelbrot.png`, `blur-before-after.png` | `FastRust.mandelbrotRgba` và `FastRust.boxBlurRgba` |
+| `screenshot-*.png` | golden test của app demo, dùng font Roboto thật |
+| `banner.png` | ảnh minh hoạ do AI tạo, không chứa số liệu |
+
+---
+
+<div align="center">
+
+<img src="docs/images/mandelbrot.png" alt="Tập Mandelbrot 1600×800 render bằng Rust đa luồng từ Dart qua dart:ffi" width="100%"/>
+
+**Từ khoá:** Flutter Rust · Flutter FFI · dart:ffi · gọi Rust từ Flutter ·
+tối ưu hiệu năng Flutter · tăng tốc Flutter · native assets · build hooks ·
+xử lý ảnh Flutter · Flutter image processing · Rust cdylib · flutter_rust_bridge
+alternative · Dart isolate · Flutter performance
+
+Nếu thấy hữu ích, hãy ⭐ repo để nhiều người tìm thấy hơn.
+
+</div>
