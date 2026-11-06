@@ -121,9 +121,9 @@ const _labels = {
   'Box blur': 'Box blur 1080p',
   'Mandelbrot': 'Mandelbrot 800×600',
   'Flood fill': 'Flood fill 1080p',
-  'Sort': 'Sort 1 triệu số',
-  'Count primes': 'Sàng nguyên tố 20M',
-  'Dot product': 'Tích vô hướng 1M',
+  'Sort': 'Sort 1M doubles',
+  'Count primes': 'Prime sieve 20M',
+  'Dot product': 'Dot product 1M',
 };
 
 String _label(String name) => _labels.entries
@@ -181,21 +181,21 @@ String _chart(Map<String, dynamic> data, {required bool dark}) {
       'role="img" aria-labelledby="t d">',
     )
     ..writeln(
-      '<title id="t">fast_rust: Rust nhanh hơn Dart bao nhiêu lần</title>',
+      '<title id="t">fast_rust: how much faster Rust is than Dart</title>',
     )
     ..writeln(
-      '<desc id="d">Hệ số tăng tốc của Rust so với Dart thuần, '
-      'khi Rust chạy 1 luồng và $threads luồng.</desc>',
+      '<desc id="d">Speedup of Rust over pure Dart, '
+      'with Rust on 1 thread and on $threads threads.</desc>',
     )
     ..writeln('<rect width="100%" height="100%" rx="12" fill="${c.surface}"/>')
     ..writeln(
       '<text x="24" y="36" font-size="20" font-weight="600" '
-      'fill="${c.text}">Rust nhanh hơn Dart bao nhiêu lần</text>',
+      'fill="${c.text}">How much faster Rust is than Dart</text>',
     )
     ..writeln(
       '<text x="24" y="60" font-size="13" fill="${c.muted}">'
-      'Hệ số = thời gian Dart ÷ thời gian Rust · AOT · '
-      '${data['os']} · median 9 lần chạy</text>',
+      'Speedup = Dart time ÷ Rust time · AOT · '
+      '${data['os']} · median of 9 runs</text>',
     );
 
   // Legend.
@@ -210,8 +210,8 @@ String _chart(Map<String, dynamic> data, {required bool dark}) {
       );
   }
 
-  legend(width - 330.0, c.s1, 'Rust 1 luồng');
-  legend(width - 200.0, c.s2, 'Rust $threads luồng');
+  legend(width - 330.0, c.s1, 'Rust, 1 thread');
+  legend(width - 200.0, c.s2, 'Rust, $threads threads');
 
   // Grid + axis labels.
   final plotBottom = top + rows.length * group - 10;
@@ -234,7 +234,7 @@ String _chart(Map<String, dynamic> data, {required bool dark}) {
     )
     ..writeln(
       '<text x="${x(1) + 4}" y="${top - 10}" font-size="11" '
-      'fill="${c.muted}">1× = ngang Dart</text>',
+      'fill="${c.muted}">1× = same as Dart</text>',
     );
 
   // Bars: square at the baseline, 4 px rounded data end.
