@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:ui' as ui;
 
 import 'package:fast_rust/fast_rust.dart';
@@ -8,13 +9,33 @@ import 'package:flutter/services.dart';
 import '../engine.dart';
 import '../spread.dart';
 
-/// Recolours a real photo. A tap selects the connected region whose colour
-/// is close to the tapped pixel (like a magic wand) and tints it while each
-/// pixel keeps its brightness, so hair, leaves and grass keep their detail.
+/// What a tap does on the photo.
+enum PhotoMode {
+  /// Tint the tapped region, keeping its brightness and texture.
+  recolor,
+
+  /// Color splash: the photo starts gray, a tap brings back the original
+  /// colors of the tapped region.
+  splash,
+
+  /// The photo turned into a coloring page by Rust; taps fill regions with
+  /// a flat color.
+  lineArt,
+}
+
+/// Three ways to paint on a real photo, all on its decoded RGBA bytes:
 ///
-/// The photo is decoded once into RGBA bytes. Every tap or drag step runs
-/// one zero-copy [FastRust.recolorRegionRgba] call on the UI thread, which
-/// reads the original pixels and writes the canvas.
+/// * **Recolor**: a tap selects the connected region whose colour is close
+///   to the tapped pixel (like a magic wand) and tints it while each pixel
+///   keeps its brightness, so hair, leaves and grass keep their detail.
+/// * **Splash**: the canvas starts as [FastRust.grayscaleRgba] of the photo;
+///   the same selection with `strength: 0` copies the original colours back.
+/// * **Line art**: [FastRust.photoToColoringPage] turns the photo into black
+///   outlines on white; taps fill its regions with a flat colour.
+///
+/// Every tap or drag step is one zero-copy Rust call on the UI thread, which
+/// reads a pristine source buffer and writes the canvas. With **Spread** on,
+/// the colour flows out from the finger frame by frame instead.
 class PhotoPage extends StatefulWidget {
   const PhotoPage({super.key, this.asset = 'assets/photo.jpg'});
 
@@ -48,6 +69,13 @@ class _PhotoPageState extends State<PhotoPage>
   double _tolerance = 28;
   double _strength = 230;
   bool _showOriginal = false;
+
+  PhotoMode _mode = PhotoMode.recolor;
+  ColoringPage? _page; // line-art mode
+  double _detail = 6; // colors for the coloring page
+  double? _pageMs;
+  Engine _pageEngine = Engine.rust;
+  bool _building = false; // coloring page being built in the background
 
   ui.Image? _image, _original;
   bool _decoding = false, _dirty = false;
@@ -107,6 +135,108 @@ class _PhotoPageState extends State<PhotoPage>
   static int _rgba(Color c) =>
       (c.toARGB32() << 8 | c.toARGB32() >>> 24) & 0xFFFFFFFF;
 
+  /// Buffer the selection reads: the photo, or the clean coloring page.
+  Uint8List get _selectSource =>
+      _mode == PhotoMode.lineArt ? _page!.rgba : _source!;
+
+  int get _paintTolerance =>
+      _mode == PhotoMode.lineArt ? 0 : _tolerance.round();
+
+  int get _paintStrength => _mode == PhotoMode.splash ? 0 : _strength.round();
+
+  /// The canvas a mode starts from (and Reset returns to).
+  Uint8List _base() => switch (_mode) {
+    PhotoMode.recolor => Uint8List.fromList(_source!),
+    PhotoMode.splash => _grayCopy(),
+    PhotoMode.lineArt => Uint8List.fromList(_page!.rgba),
+  };
+
+  Uint8List _grayCopy() {
+    final out = Uint8List.fromList(_source!);
+    _gray(out);
+    return out;
+  }
+
+  void _gray(Uint8List rgba) => switch (_engine) {
+    Engine.rust => FastRust.grayscaleRgba(rgba),
+    Engine.dart => DartReference.grayscaleRgba(rgba),
+  };
+
+  // A strong blur and merging regions under 0.2% of the photo give a page
+  // with shapes big enough to color with a finger.
+  static const _pageSmooth = 5;
+  int get _pageMinRegion => _width * _height ~/ 500;
+
+  /// Builds the coloring page on a background isolate, so the UI keeps
+  /// running even with the slower Dart engine.
+  Future<void> _makePage() async {
+    setState(() => _building = true);
+    final args = (
+      src: _source!,
+      width: _width,
+      height: _height,
+      colors: _detail.round(),
+      smooth: _pageSmooth,
+      minRegion: _pageMinRegion,
+      engine: _engine,
+    );
+    final (ColoringPage, double) result;
+    try {
+      result = await _buildPageInBackground(args);
+    } finally {
+      _building = false;
+    }
+    final (page, ms) = result;
+    if (!mounted) return;
+    _page = page;
+    _pageMs = ms;
+    _pageEngine = args.engine;
+  }
+
+  Future<void> _setMode(PhotoMode mode) async {
+    if (_source == null || _building) return;
+    _finishSpread();
+    setState(() {
+      _mode = mode;
+      _lastMs = null;
+    });
+    if (mode == PhotoMode.lineArt && _page == null) await _makePage();
+    if (!mounted || _mode != mode) return;
+    _undo.clear();
+    _canvas = _base();
+    setState(() => _lastMs = null);
+    _present();
+  }
+
+  Future<void> _regeneratePage() async {
+    if (_mode != PhotoMode.lineArt || _building) return;
+    _finishSpread();
+    setState(() => _lastMs = null);
+    await _makePage();
+    if (!mounted || _mode != PhotoMode.lineArt) return;
+    _undo.clear();
+    _canvas = _base();
+    setState(() => _lastMs = null);
+    _present();
+  }
+
+  /// Paints every region of the coloring page in the photo's own colors,
+  /// like a finished paint-by-numbers.
+  void _reveal() {
+    final page = _page;
+    if (page == null) return;
+    _finishSpread();
+    _snapshot();
+    final labels = page.labels, pal = page.palette;
+    for (var i = 0; i < labels.length; i++) {
+      final l = labels[i];
+      if (l == FastRust.lineLabel) continue;
+      _canvas.setRange(i * 4, i * 4 + 3, pal, l * 4);
+    }
+    setState(() {});
+    _present();
+  }
+
   void _snapshot() {
     _undo.add(Uint8List.fromList(_canvas));
     if (_undo.length > _maxUndo) _undo.removeAt(0);
@@ -122,8 +252,20 @@ class _PhotoPageState extends State<PhotoPage>
     if (point == _lastPoint) return;
     _lastPoint = point;
 
+    if (_mode == PhotoMode.lineArt) {
+      // Flat fill of one page region, at once.
+      if (_page!.labels[y * _width + x] == FastRust.lineLabel) return;
+      final spread = _newSpread(x, y);
+      spread.finish();
+      setState(() {
+        _lastMs = spread.setupMs + spread.paintMs;
+        _lastPixels = spread.painted;
+      });
+      _present();
+      return;
+    }
     final color = _rgba(palette[_colorIndex]);
-    final tolerance = _tolerance.round(), strength = _strength.round();
+    final tolerance = _paintTolerance, strength = _paintStrength;
     final sw = Stopwatch()..start();
     final n = switch (_engine) {
       Engine.rust => FastRust.recolorRegionRgba(
@@ -157,7 +299,7 @@ class _PhotoPageState extends State<PhotoPage>
   }
 
   void _startStroke(Offset local, Size size) {
-    if (_source == null) return;
+    if (_source == null || _building) return;
     _finishSpread();
     _snapshot();
     _lastPoint = null;
@@ -171,6 +313,7 @@ class _PhotoPageState extends State<PhotoPage>
   }
 
   void _dragStroke(Offset local, Size size) {
+    if (_building) return;
     if (_spreadMode) {
       _startSpread(local, size);
     } else {
@@ -186,24 +329,30 @@ class _PhotoPageState extends State<PhotoPage>
     if (x < 0 || y < 0 || x >= _width || y >= _height) return;
     final seed = Offset(x.toDouble(), y.toDouble());
     if (_lastSeed != null && (seed - _lastSeed!).distance < 6) return;
+    if (_mode == PhotoMode.lineArt &&
+        _page!.labels[y * _width + x] == FastRust.lineLabel) {
+      return; // on an outline
+    }
     _lastSeed = seed;
-    final spread = Spread.start(
-      _engine,
-      _source!,
-      _canvas,
-      width: _width,
-      height: _height,
-      x: x,
-      y: y,
-      color: _rgba(palette[_colorIndex]),
-      tolerance: _tolerance.round(),
-      strength: _strength.round(),
-      tint: true,
-    );
+    final spread = _newSpread(x, y);
     _spreads.add((spread: spread, born: _ticker.isActive ? _now : null));
     _lastMs = spread.setupMs;
     if (!_ticker.isActive) _ticker.start();
   }
+
+  Spread _newSpread(int x, int y) => Spread.start(
+    _engine,
+    _selectSource,
+    _canvas,
+    width: _width,
+    height: _height,
+    x: x,
+    y: y,
+    color: _rgba(palette[_colorIndex]),
+    tolerance: _paintTolerance,
+    strength: _paintStrength,
+    tint: _mode != PhotoMode.lineArt,
+  );
 
   void _onTick(Duration elapsed) {
     _now = elapsed;
@@ -283,7 +432,7 @@ class _PhotoPageState extends State<PhotoPage>
     if (source == null) return;
     _finishSpread();
     _snapshot();
-    _canvas = Uint8List.fromList(source);
+    _canvas = _base();
     setState(() => _lastMs = null);
     _present();
   }
@@ -298,6 +447,29 @@ class _PhotoPageState extends State<PhotoPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          SegmentedButton<PhotoMode>(
+            key: const Key('photo-mode'),
+            segments: const [
+              ButtonSegment(
+                value: PhotoMode.recolor,
+                label: Text('Recolor'),
+                icon: Icon(Icons.brush),
+              ),
+              ButtonSegment(
+                value: PhotoMode.splash,
+                label: Text('Splash'),
+                icon: Icon(Icons.water_drop),
+              ),
+              ButtonSegment(
+                value: PhotoMode.lineArt,
+                label: Text('Line art'),
+                icon: Icon(Icons.draw),
+              ),
+            ],
+            selected: {_mode},
+            onSelectionChanged: (s) => _setMode(s.first),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               SegmentedButton<Engine>(
@@ -324,7 +496,17 @@ class _PhotoPageState extends State<PhotoPage>
           const SizedBox(height: 8),
           Text(
             _lastMs == null
-                ? 'Tap the hair, the sky or the grass to recolor it'
+                ? switch (_mode) {
+                    PhotoMode.recolor =>
+                      'Tap the hair, the sky or the grass to recolor it',
+                    PhotoMode.splash => 'Tap to bring the color back',
+                    PhotoMode.lineArt =>
+                      _building || _pageMs == null
+                          ? 'Building the coloring page…'
+                          : 'Page made by ${_pageEngine.name} in '
+                                '${_pageMs!.toStringAsFixed(1)} ms · '
+                                'tap a region to fill it',
+                  }
                 : _spreadMode
                 ? 'Spread $_lastPixels px · distances '
                       '${_lastMs!.toStringAsFixed(2)} ms · frame '
@@ -339,25 +521,26 @@ class _PhotoPageState extends State<PhotoPage>
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (var i = 0; i < palette.length; i++)
-                GestureDetector(
-                  onTap: () => setState(() => _colorIndex = i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: palette[i],
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: i == _colorIndex
-                            ? theme.colorScheme.onSurface
-                            : Colors.transparent,
-                        width: 3,
+              if (_mode != PhotoMode.splash)
+                for (var i = 0; i < palette.length; i++)
+                  GestureDetector(
+                    onTap: () => setState(() => _colorIndex = i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: palette[i],
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: i == _colorIndex
+                              ? theme.colorScheme.onSurface
+                              : Colors.transparent,
+                          width: 3,
+                        ),
                       ),
                     ),
                   ),
-                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -392,19 +575,34 @@ class _PhotoPageState extends State<PhotoPage>
             ),
           ),
           const SizedBox(height: 4),
-          _SliderRow(
-            label: 'Tolerance',
-            value: _tolerance,
-            max: 128,
-            onChanged: (v) => setState(() => _tolerance = v),
-          ),
-          _SliderRow(
-            label: 'Strength',
-            value: _strength,
-            max: 255,
-            onChanged: (v) => setState(() => _strength = v),
-          ),
-          Row(
+          if (_mode == PhotoMode.lineArt)
+            _SliderRow(
+              label: 'Detail',
+              value: _detail,
+              min: 3,
+              max: 20,
+              onChanged: (v) => setState(() => _detail = v),
+              onChangeEnd: (_) => _regeneratePage(),
+            )
+          else
+            _SliderRow(
+              label: 'Tolerance',
+              value: _tolerance,
+              max: 128,
+              onChanged: (v) => setState(() => _tolerance = v),
+            ),
+          if (_mode == PhotoMode.recolor)
+            _SliderRow(
+              label: 'Strength',
+              value: _strength,
+              max: 255,
+              onChanged: (v) => setState(() => _strength = v),
+            )
+          else
+            const SizedBox(height: 48),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
             children: [
               FilterChip(
                 key: const Key('photo-spread'),
@@ -416,7 +614,6 @@ class _PhotoPageState extends State<PhotoPage>
                   _spreadMode = v;
                 }),
               ),
-              const SizedBox(width: 8),
               GestureDetector(
                 onTapDown: (_) => setState(() => _showOriginal = true),
                 onTapUp: (_) => setState(() => _showOriginal = false),
@@ -426,14 +623,31 @@ class _PhotoPageState extends State<PhotoPage>
                   label: Text('Hold: original'),
                 ),
               ),
+              if (_mode == PhotoMode.lineArt) ...[
+                ActionChip(
+                  key: const Key('photo-reveal'),
+                  avatar: const Icon(Icons.auto_awesome, size: 18),
+                  label: const Text('Reveal'),
+                  onPressed: _reveal,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            ready
-                ? '$_width×$_height photo · selection reads the original '
-                      'pixels, tint keeps brightness'
-                : 'Decoding photo…',
+            !ready
+                ? 'Decoding photo…'
+                : switch (_mode) {
+                    PhotoMode.recolor =>
+                      '$_width×$_height photo · selection reads the original '
+                          'pixels, tint keeps brightness',
+                    PhotoMode.splash =>
+                      '$_width×$_height photo · grayscale canvas, taps copy '
+                          'the original colors back',
+                    PhotoMode.lineArt =>
+                      '$_width×$_height photo to ${_detail.round()} colors '
+                          '· blur, k-means, cleanup, outlines in Rust',
+                  },
             style: theme.textTheme.bodySmall,
           ),
         ],
@@ -448,11 +662,14 @@ class _SliderRow extends StatelessWidget {
     required this.value,
     required this.max,
     required this.onChanged,
+    this.min = 0,
+    this.onChangeEnd,
   });
 
   final String label;
-  final double value, max;
+  final double value, min, max;
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -462,10 +679,12 @@ class _SliderRow extends StatelessWidget {
         Expanded(
           child: Slider(
             value: value,
+            min: min,
             max: max,
             label: '${value.round()}',
-            divisions: max.round(),
+            divisions: (max - min).round(),
             onChanged: onChanged,
+            onChangeEnd: onChangeEnd,
           ),
         ),
         SizedBox(
@@ -475,4 +694,44 @@ class _SliderRow extends StatelessWidget {
       ],
     );
   }
+}
+
+typedef _PageArgs = ({
+  Uint8List src,
+  int width,
+  int height,
+  int colors,
+  int smooth,
+  int minRegion,
+  Engine engine,
+});
+
+/// Top-level so the closure sent to the isolate captures only [a], not the
+/// State (a closure made inside a State method captures `this`, which
+/// cannot be sent to another isolate).
+Future<(ColoringPage, double)> _buildPageInBackground(_PageArgs a) =>
+    Isolate.run(() => _buildPage(a));
+
+/// Builds the page and measures how long it took.
+(ColoringPage, double) _buildPage(_PageArgs a) {
+  final sw = Stopwatch()..start();
+  final page = switch (a.engine) {
+    Engine.rust => FastRust.photoToColoringPage(
+      a.src,
+      width: a.width,
+      height: a.height,
+      colors: a.colors,
+      smooth: a.smooth,
+      minRegion: a.minRegion,
+    ),
+    Engine.dart => DartReference.photoToColoringPage(
+      a.src,
+      width: a.width,
+      height: a.height,
+      colors: a.colors,
+      smooth: a.smooth,
+      minRegion: a.minRegion,
+    ),
+  };
+  return (page, sw.elapsedMicroseconds / 1000);
 }
