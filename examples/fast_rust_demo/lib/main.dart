@@ -4,6 +4,7 @@ import 'pages/benchmark_page.dart';
 import 'pages/blur_page.dart';
 import 'pages/fractal_page.dart';
 import 'pages/paint_page.dart';
+import 'pages/photo_page.dart';
 
 void main() => runApp(const FastRustDemo());
 
@@ -45,6 +46,7 @@ class _HomePageState extends State<HomePage> {
     FractalPage(),
     BlurPage(),
     PaintPage(),
+    PhotoPage(),
   ];
 
   @override
@@ -79,6 +81,7 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.format_color_fill),
             label: 'Paint',
           ),
+          NavigationDestination(icon: Icon(Icons.palette), label: 'Photo'),
         ],
       ),
     );

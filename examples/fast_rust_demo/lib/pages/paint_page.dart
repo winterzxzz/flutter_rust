@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../engine.dart';
+import '../spread.dart';
 
 /// Pixel-art coloring book. Tap or drag to bucket-fill regions; "Auto"
 /// repaints many regions every frame and reports frames per second, which
@@ -18,8 +19,7 @@ class PaintPage extends StatefulWidget {
   State<PaintPage> createState() => _PaintPageState();
 }
 
-class _PaintPageState extends State<PaintPage>
-    with SingleTickerProviderStateMixin {
+class _PaintPageState extends State<PaintPage> with TickerProviderStateMixin {
   static const _size = 1024, _block = 8, _cells = 140;
   static const palette = <Color>[
     Color(0xFFE63946),
@@ -53,6 +53,13 @@ class _PaintPageState extends State<PaintPage>
   double _fps = 0;
   double _autoFillMs = 0;
 
+  // Spreading fill: colour flows out from the finger.
+  bool _spreadMode = false;
+  Spread? _spread;
+  late final Ticker _spreadTicker = createTicker(_onSpreadTick);
+  Duration _spreadStart = Duration.zero;
+  static const _spreadSpeed = 900 * FastRust.spreadStep; // units per second
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +69,7 @@ class _PaintPageState extends State<PaintPage>
   @override
   void dispose() {
     _ticker.dispose();
+    _spreadTicker.dispose();
     _image?.dispose();
     super.dispose();
   }
@@ -108,16 +116,72 @@ class _PaintPageState extends State<PaintPage>
     };
   }
 
-  void _fillAt(Offset local, Size size) {
+  void _fillAt(Offset local, Size size, {bool start = false}) {
     final x = (local.dx / size.width * _size).floor();
     final y = (local.dy / size.height * _size).floor();
     if (x < 0 || y < 0 || x >= _size || y >= _size) return;
+    if (_spreadMode) {
+      if (start) _startSpread(x, y);
+      return;
+    }
     final sw = Stopwatch()..start();
     final n = _fill(x, y, palette[_colorIndex]);
     if (n == 0) return;
     setState(() {
       _fillMs = sw.elapsedMicroseconds / 1000;
       _filled = n;
+    });
+    _present();
+  }
+
+  void _startSpread(int x, int y) {
+    _finishSpread();
+    final p = (y * _size + x) * 4;
+    if (_canvas[p] == 0 && _canvas[p + 1] == 0 && _canvas[p + 2] == 0) {
+      return; // outline: keep the drawing intact
+    }
+    // Select on a snapshot so the region is fixed while it is painted.
+    _spread = Spread.start(
+      _engine,
+      Uint8List.fromList(_canvas),
+      _canvas,
+      width: _size,
+      height: _size,
+      x: x,
+      y: y,
+      color: _rgba(palette[_colorIndex]),
+      tolerance: 0,
+    );
+    _spreadStart = Duration.zero;
+    _spreadTicker.start();
+  }
+
+  void _onSpreadTick(Duration elapsed) {
+    final spread = _spread;
+    if (spread == null) return;
+    if (_spreadStart == Duration.zero) _spreadStart = elapsed;
+    final t = (elapsed - _spreadStart).inMicroseconds / 1e6;
+    spread.advanceTo((t * _spreadSpeed).round() + 1);
+    _showSpread(spread);
+    if (spread.done) {
+      _spreadTicker.stop();
+      _spread = null;
+    }
+  }
+
+  void _finishSpread() {
+    final spread = _spread;
+    if (spread == null) return;
+    _spreadTicker.stop();
+    spread.finish();
+    _spread = null;
+    _showSpread(spread);
+  }
+
+  void _showSpread(Spread spread) {
+    setState(() {
+      _fillMs = spread.setupMs;
+      _filled = spread.painted;
     });
     _present();
   }
@@ -149,6 +213,7 @@ class _PaintPageState extends State<PaintPage>
   }
 
   void _toggleAuto() {
+    _finishSpread();
     setState(() {
       if (_ticker.isActive) {
         _ticker.stop();
@@ -217,6 +282,9 @@ class _PaintPageState extends State<PaintPage>
                       '${_autoFillMs.toStringAsFixed(2)} ms fill per frame'
                 : _fillMs == null
                 ? 'Tap or drag on the picture to fill regions'
+                : _spreadMode
+                ? 'Spread $_filled px · distances '
+                      '${_fillMs!.toStringAsFixed(2)} ms'
                 : 'Filled $_filled px in ${_fillMs!.toStringAsFixed(2)} ms',
             key: const Key('paint-ms'),
             style: theme.textTheme.titleMedium,
@@ -257,7 +325,8 @@ class _PaintPageState extends State<PaintPage>
                     final size = constraints.biggest;
                     return GestureDetector(
                       key: const Key('paint-canvas'),
-                      onTapDown: (d) => _fillAt(d.localPosition, size),
+                      onTapDown: (d) =>
+                          _fillAt(d.localPosition, size, start: true),
                       onPanStart: (d) => _fillAt(d.localPosition, size),
                       onPanUpdate: (d) => _fillAt(d.localPosition, size),
                       child: _image == null
@@ -299,6 +368,7 @@ class _PaintPageState extends State<PaintPage>
               ),
               OutlinedButton.icon(
                 onPressed: () {
+                  _finishSpread();
                   _canvas = Uint8List.fromList(_page);
                   _present();
                 },
@@ -307,11 +377,22 @@ class _PaintPageState extends State<PaintPage>
               ),
               OutlinedButton.icon(
                 onPressed: () {
+                  _finishSpread();
                   _seed++;
                   _newPage();
                 },
                 icon: const Icon(Icons.refresh),
                 label: const Text('New page'),
+              ),
+              FilterChip(
+                key: const Key('paint-spread'),
+                label: const Text('Spread'),
+                tooltip: 'Animate the color flowing out from the tap',
+                selected: _spreadMode,
+                onSelected: (v) => setState(() {
+                  _finishSpread();
+                  _spreadMode = v;
+                }),
               ),
             ],
           ),
