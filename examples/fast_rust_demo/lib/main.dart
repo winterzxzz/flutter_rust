@@ -13,6 +13,7 @@ class FastRustDemo extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'fast_rust demo',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.deepOrange, useMaterial3: true),
       darkTheme: ThemeData(
         colorSchemeSeed: Colors.deepOrange,
