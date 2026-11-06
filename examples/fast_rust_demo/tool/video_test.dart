@@ -269,6 +269,19 @@ void main() {
     await _tap(tester, tester.getCenter(find.text('Dart')), after: 1.5);
     await _tap(tester, tester.getCenter(find.text('Rust')), after: 1.0);
 
+    // Scene: real-time path tracing; the image sharpens, an orbit restarts
+    // it, and the Dart engine shows how much slower one frame is.
+    await _tap(tester, tester.getCenter(navTab(Icons.view_in_ar)), after: 2.0);
+    final ray = tester.getRect(find.byKey(const Key('ray-canvas')));
+    await _drag(
+      tester,
+      ray.center,
+      Offset(-ray.width * 0.35, ray.height * 0.08),
+    );
+    await _hold(tester, 2.0);
+    await _tap(tester, tester.getCenter(find.text('Dart')), after: 1.5);
+    await _tap(tester, tester.getCenter(find.text('Rust')), after: 1.5);
+
     // Scene 5: pixel-art coloring page, spreading then instant fills.
     await _tap(
       tester,

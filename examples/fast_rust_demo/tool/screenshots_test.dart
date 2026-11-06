@@ -282,4 +282,25 @@ void main() {
       matchesGoldenFile('../../../docs/images/screenshot-sand.png'),
     );
   });
+
+  testWidgets('ray', (tester) async {
+    await phone(tester);
+    await tester.tap(navTab(Icons.view_in_ar));
+    await tester.pump();
+    final slider = find.byType(Slider).last;
+    await tester.drag(slider, const Offset(400, 0)); // 4 samples per frame
+    await tester.pump();
+    await tester.tap(find.text('Restart'));
+    for (var i = 0; i < 64; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await _wait(tester, 400);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-ray.png'),
+    );
+  });
 }

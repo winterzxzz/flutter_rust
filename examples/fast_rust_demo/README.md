@@ -17,6 +17,8 @@ A Flutter app that shows off the performance of [`fast_rust`](../../packages/fas
     shows the photo's own colors.
 
   The *Spread* switch makes the color flow out from your finger.
+- **Ray**: real-time path tracing of glass, metal and diffuse spheres. The
+  image sharpens as samples accumulate; drag to orbit.
 - **Sand**: a falling-sand simulation of a million cells. Pour sand or water,
   draw walls, or turn on rain, and watch the FPS when you switch to Dart.
 
