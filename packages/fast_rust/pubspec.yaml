@@ -1,0 +1,19 @@
+name: fast_rust
+description: >-
+  High-performance kernels written in Rust for Dart and Flutter, loaded
+  through native assets (build hooks) with zero-copy FFI calls.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  code_assets: ^2.1.0
+  ffi: ^2.1.0
+  hooks: ^2.2.0
+
+dev_dependencies:
+  crypto: ^3.0.6
+  lints: ^6.0.0
+  test: ^1.25.0

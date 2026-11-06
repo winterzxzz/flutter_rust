@@ -1,0 +1,5 @@
+.dart_tool/
+build/
+rust/target/
+# Library package: consumers resolve their own versions.
+pubspec.lock
