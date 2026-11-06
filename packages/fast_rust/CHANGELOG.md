@@ -1,3 +1,18 @@
+## 0.2.0
+
+* Photo to coloring page: `FastRust.photoToColoringPage` (and `...Async`)
+  turns a photo into black outlines on white, ready to fill. It blurs,
+  quantizes colours with k-means, removes speckles with a majority filter,
+  merges regions smaller than `minRegion`, and draws `lineWidth`-pixel
+  outlines plus a frame. Returns a `ColoringPage` with the page, a label
+  map and the photo's palette (for a "reveal" or color-by-number mode).
+* Falling sand: `FastRust.sandStep` advances a sand/water/wall grid by one
+  deterministic step; `FastRust.sandRenderRgba` draws it. Cell values are
+  in `SandMaterial`.
+* `spreadDistancesRgba` and `paintByDistanceRgba` now reject a `distances`
+  buffer that overlaps the image buffers.
+* `DartReference` versions of all new kernels, matching Rust bit for bit.
+
 ## 0.1.0
 
 * Initial release. Rust kernels called through zero-copy `dart:ffi`

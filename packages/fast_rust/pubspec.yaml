@@ -1,8 +1,8 @@
 name: fast_rust
 description: >-
-  Rust-powered image and data kernels for Flutter and Dart over zero-copy
-  dart:ffi: photo recoloring, flood fill, blur, SHA-256 and sorting.
-version: 0.1.0
+  Rust-powered kernels for Flutter and Dart over zero-copy dart:ffi: photo
+  recoloring, photo to coloring page, flood fill, falling sand, blur.
+version: 0.2.0
 homepage: https://github.com/winterzxzz/flutter_rust
 repository: https://github.com/winterzxzz/flutter_rust/tree/main/packages/fast_rust
 issue_tracker: https://github.com/winterzxzz/flutter_rust/issues
@@ -16,6 +16,12 @@ topics:
 screenshots:
   - description: Recoloring a real photo in Flutter with Rust, texture kept
     path: doc/screenshots/photo.png
+  - description: A photo turned into a coloring page by Rust, then filled
+    path: doc/screenshots/lineart.png
+  - description: Color splash on a photo, gray except the tapped regions
+    path: doc/screenshots/splash.png
+  - description: Falling-sand simulation of a million cells
+    path: doc/screenshots/sand.png
   - description: Pixel-art coloring book with a Rust flood fill
     path: doc/screenshots/paint.png
   - description: Mandelbrot explorer rendered by multi-threaded Rust
