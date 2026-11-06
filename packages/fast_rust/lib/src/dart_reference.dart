@@ -142,4 +142,174 @@ abstract final class DartReference {
     }
     return sum;
   }
+
+  /// Same page generator as the Rust side, including its xorshift64 RNG.
+  static Uint8List coloringPageRgba({
+    required int width,
+    required int height,
+    int cells = 120,
+    int block = 8,
+    int seed = 1,
+  }) {
+    final out = Uint8List(width * height * 4);
+    if (width == 0 || height == 0) return out;
+    final gw = (width + block - 1) ~/ block;
+    final gh = (height + block - 1) ~/ block;
+    var state = (seed ^ 0x9E3779B97F4A7C15) | 1;
+    int below(int n) {
+      state ^= state << 13;
+      state ^= state >>> 7;
+      state ^= state << 17;
+      // (state >> 1) as unsigned is non-negative in Dart's signed 64-bit int.
+      return (state >>> 1) % n;
+    }
+
+    final sx = Int64List(cells), sy = Int64List(cells);
+    for (var i = 0; i < cells; i++) {
+      sx[i] = below(gw);
+      sy[i] = below(gh);
+    }
+    final labels = Uint32List(gw * gh);
+    for (var gy = 0; gy < gh; gy++) {
+      for (var gx = 0; gx < gw; gx++) {
+        var best = 0, bestD = -1;
+        for (var i = 0; i < cells; i++) {
+          final dx = sx[i] - gx, dy = sy[i] - gy;
+          final d = dx * dx + dy * dy;
+          if (bestD < 0 || d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+        labels[gy * gw + gx] = best;
+      }
+    }
+    var p = 0;
+    for (var y = 0; y < height; y++) {
+      final gy = y ~/ block;
+      for (var x = 0; x < width; x++) {
+        final gx = x ~/ block;
+        final l = labels[gy * gw + gx];
+        final edge =
+            gx == 0 ||
+            gy == 0 ||
+            gx + 1 == gw ||
+            gy + 1 == gh ||
+            labels[gy * gw + gx + 1] != l ||
+            labels[(gy + 1) * gw + gx] != l;
+        final v = edge ? 0 : 255;
+        out[p] = v;
+        out[p + 1] = v;
+        out[p + 2] = v;
+        out[p + 3] = 255;
+        p += 4;
+      }
+    }
+    return out;
+  }
+
+  /// Same scanline flood fill as the Rust side (exact-match fast path
+  /// without a visited map; visited map when [tolerance] > 0).
+  static int floodFillRgba(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    required int color,
+    int tolerance = 0,
+  }) {
+    final c = [
+      (color >> 24) & 0xff,
+      (color >> 16) & 0xff,
+      (color >> 8) & 0xff,
+      color & 0xff,
+    ];
+    final s = (y * width + x) * 4;
+    final t = [rgba[s], rgba[s + 1], rgba[s + 2], rgba[s + 3]];
+    if (tolerance == 0) {
+      if (t[0] == c[0] && t[1] == c[1] && t[2] == c[2] && t[3] == c[3]) {
+        return 0;
+      }
+      if (rgba.offsetInBytes % 4 == 0) {
+        // Compare whole pixels as 32-bit words, like Rust's [u8; 4] ==.
+        final px = rgba.buffer.asUint32List(rgba.offsetInBytes, width * height);
+        final bytes = ByteData(4);
+        for (var i = 0; i < 4; i++) {
+          bytes.setUint8(i, t[i]);
+        }
+        final target = bytes.getUint32(0, Endian.host);
+        for (var i = 0; i < 4; i++) {
+          bytes.setUint8(i, c[i]);
+        }
+        final fill = bytes.getUint32(0, Endian.host);
+        return _scanline(
+          width,
+          height,
+          x,
+          y,
+          (i) => px[i] == target,
+          (from, to) => px.fillRange(from, to, fill),
+        );
+      }
+    }
+    bool near(int p) =>
+        (rgba[p] - t[0]).abs() <= tolerance &&
+        (rgba[p + 1] - t[1]).abs() <= tolerance &&
+        (rgba[p + 2] - t[2]).abs() <= tolerance &&
+        (rgba[p + 3] - t[3]).abs() <= tolerance;
+    final visited = Uint8List(width * height);
+    return _scanline(
+      width,
+      height,
+      x,
+      y,
+      (i) => visited[i] == 0 && near(i * 4),
+      (from, to) {
+        for (var i = from; i < to; i++) {
+          visited[i] = 1;
+          rgba.setRange(i * 4, i * 4 + 4, c);
+        }
+      },
+    );
+  }
+
+  static int _scanline(
+    int width,
+    int height,
+    int x,
+    int y,
+    bool Function(int index) fillable,
+    void Function(int from, int to) paint,
+  ) {
+    final stack = <int>[y * width + x];
+    var painted = 0;
+    while (stack.isNotEmpty) {
+      final i = stack.removeLast();
+      if (!fillable(i)) continue;
+      final yy = i ~/ width;
+      final row = yy * width;
+      var lx = i - row;
+      while (lx > 0 && fillable(row + lx - 1)) {
+        lx--;
+      }
+      var rx = i - row;
+      while (rx + 1 < width && fillable(row + rx + 1)) {
+        rx++;
+      }
+      paint(row + lx, row + rx + 1);
+      painted += rx - lx + 1;
+      for (final ny in [yy - 1, yy + 1]) {
+        if (ny < 0 || ny >= height) continue;
+        final nrow = ny * width;
+        var inRun = false;
+        for (var k = lx; k <= rx; k++) {
+          final m = fillable(nrow + k);
+          if (m && !inRun) stack.add(nrow + k);
+          inRun = m;
+        }
+      }
+    }
+    return painted;
+  }
 }
