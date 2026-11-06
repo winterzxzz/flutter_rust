@@ -1,0 +1,157 @@
+// Dart vs Rust on identical algorithms and inputs.
+//
+//   dart run benchmark/benchmark.dart              # JIT (like debug builds)
+//   dart build cli -t benchmark/benchmark.dart     # AOT (like release builds)
+//
+// Each case is warmed up, then timed repeatedly; the median is reported.
+// Rust is measured on 1 thread (per-core speed) and on all threads.
+// Blur and grayscale run repeatedly on the same buffer: their cost does not
+// depend on pixel values, so no per-run copy pollutes the timing. Sort must
+// start unsorted, so both sides pay the same 8 MB copy per run.
+
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:fast_rust/fast_rust.dart';
+
+double _medianMs(void Function() body, {int runs = 9}) {
+  for (var i = 0; i < 2; i++) {
+    body(); // warm-up (JIT compilation, page faults)
+  }
+  final times = <double>[];
+  final sw = Stopwatch();
+  for (var i = 0; i < runs; i++) {
+    sw
+      ..reset()
+      ..start();
+    body();
+    sw.stop();
+    times.add(sw.elapsedMicroseconds / 1000);
+  }
+  times.sort();
+  return times[times.length ~/ 2];
+}
+
+final _rows = <List<String>>[];
+
+/// Times Dart, Rust on one thread, and Rust on all threads.
+void _case(String name, void Function() dart, void Function() rust) {
+  final d = _medianMs(dart);
+  FastRust.setThreadLimit(1);
+  final r1 = _medianMs(rust);
+  FastRust.setThreadLimit(0);
+  final r = _medianMs(rust);
+  _rows.add([
+    name,
+    d.toStringAsFixed(2),
+    r1.toStringAsFixed(2),
+    '${(d / r1).toStringAsFixed(1)}x',
+    r.toStringAsFixed(2),
+    '${(d / r).toStringAsFixed(1)}x',
+  ]);
+}
+
+void main() {
+  final rnd = Random(1);
+  print('fast_rust benchmark — Rust threads: ${FastRust.threadCount}\n');
+
+  // FFI call overhead: 1M trivial calls.
+  final ns =
+      _medianMs(() {
+        var acc = 0;
+        for (var i = 0; i < 1000000; i++) {
+          acc = FastRust.add(acc, i);
+        }
+        if (acc == 42) print('');
+      }) *
+      1e6 /
+      1000000;
+  print('FFI call overhead (leaf call): ${ns.toStringAsFixed(1)} ns/call\n');
+
+  final bytes = Uint8List.fromList(
+    List.generate(8 << 20, (_) => rnd.nextInt(256)),
+  );
+  _case(
+    'SHA-256 8 MiB (vs package:crypto)',
+    () => crypto.sha256.convert(bytes),
+    () => FastRust.sha256(bytes),
+  );
+
+  const w = 1920, h = 1080;
+  final image = Uint8List.fromList(
+    List.generate(w * h * 4, (i) => (i * 31) & 0xff),
+  );
+  final work = Uint8List.fromList(image);
+  _case(
+    'Grayscale 1920x1080',
+    () => DartReference.grayscaleRgba(work),
+    () => FastRust.grayscaleRgba(work),
+  );
+  _case(
+    'Box blur 1920x1080 r=12',
+    () => DartReference.boxBlurRgba(work, width: w, height: h, radius: 12),
+    () => FastRust.boxBlurRgba(work, width: w, height: h, radius: 12),
+  );
+
+  _case(
+    'Mandelbrot 800x600 x500 iter',
+    () => DartReference.mandelbrotRgba(
+      width: 800,
+      height: 600,
+      scale: 3.0 / 800,
+      maxIterations: 500,
+    ),
+    () => FastRust.mandelbrotRgba(
+      width: 800,
+      height: 600,
+      scale: 3.0 / 800,
+      maxIterations: 500,
+    ),
+  );
+
+  final doubles = Float64List.fromList(
+    List.generate(1000000, (_) => rnd.nextDouble()),
+  );
+  final sortWork = Float64List(doubles.length);
+  _case(
+    'Sort 1M doubles (Dart List.sort)',
+    () => (sortWork..setAll(0, doubles)).sort(),
+    () => FastRust.sortFloat64(sortWork..setAll(0, doubles)),
+  );
+
+  _case(
+    'Count primes <= 20M',
+    () => DartReference.countPrimes(20000000),
+    () => FastRust.countPrimes(20000000),
+  );
+
+  final other = Float64List.fromList(
+    List.generate(1000000, (_) => rnd.nextDouble()),
+  );
+  _case(
+    'Dot product 1M doubles',
+    () => DartReference.dot(doubles, other),
+    () => FastRust.dot(doubles, other),
+  );
+
+  final header = [
+    'Case',
+    'Dart ms',
+    'Rust 1T',
+    'x',
+    'Rust ${FastRust.threadCount}T',
+    'x',
+  ];
+  final widths = List.generate(
+    header.length,
+    (c) => [header, ..._rows].map((r) => r[c].length).reduce(max),
+  );
+  String fmt(List<String> r) => [
+    for (var c = 0; c < r.length; c++)
+      c == 0 ? r[c].padRight(widths[c]) : r[c].padLeft(widths[c]),
+  ].join('  ');
+  print(fmt(header));
+  print(widths.map((n) => '-' * n).join('  '));
+  _rows.map(fmt).forEach(print);
+}
