@@ -1,0 +1,101 @@
+// Raw bindings to the Rust library. The asset id of this library
+// (package:fast_rust/src/bindings.dart) matches the CodeAsset registered in
+// hook/build.dart, so @Native resolves symbols without manual dlopen.
+//
+// Two flavours per heavy kernel:
+//
+// * `isLeaf: true` — cheapest call, and the only kind that may receive
+//   `typedList.address` (zero copy from the Dart heap). While a leaf call
+//   runs, GC is paused for *every* isolate in the group, including the UI
+//   isolate, so use these only for short calls (a few milliseconds).
+// * non-leaf (`...Blocking`) — the thread leaves the Dart VM, so other
+//   isolates keep collecting garbage. Must be given native memory.
+//
+// None of the functions call back into Dart.
+
+import 'dart:ffi';
+
+@Native<Uint32 Function()>(symbol: 'fr_abi_version', isLeaf: true)
+external int frAbiVersion();
+
+@Native<Int64 Function(Int64, Int64)>(symbol: 'fr_add_i64', isLeaf: true)
+external int frAddI64(int a, int b);
+
+@Native<Uint32 Function()>(symbol: 'fr_thread_count', isLeaf: true)
+external int frThreadCount();
+
+@Native<Void Function(Uint32)>(symbol: 'fr_set_thread_limit', isLeaf: true)
+external void frSetThreadLimit(int limit);
+
+@Native<Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>)>(
+  symbol: 'fr_sha256',
+  isLeaf: true,
+)
+external int frSha256(Pointer<Uint8> data, int len, Pointer<Uint8> out);
+
+@Native<Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>)>(
+  symbol: 'fr_sha256',
+)
+external int frSha256Blocking(Pointer<Uint8> data, int len, Pointer<Uint8> out);
+
+@Native<Int32 Function(Pointer<Uint8>, Size)>(
+  symbol: 'fr_grayscale_rgba',
+  isLeaf: true,
+)
+external int frGrayscaleRgba(Pointer<Uint8> rgba, int len);
+
+@Native<Int32 Function(Pointer<Uint8>, Uint32, Uint32, Uint32)>(
+  symbol: 'fr_box_blur_rgba',
+  isLeaf: true,
+)
+external int frBoxBlurRgba(
+  Pointer<Uint8> rgba,
+  int width,
+  int height,
+  int radius,
+);
+
+@Native<Int32 Function(Pointer<Uint8>, Uint32, Uint32, Uint32)>(
+  symbol: 'fr_box_blur_rgba',
+)
+external int frBoxBlurRgbaBlocking(
+  Pointer<Uint8> rgba,
+  int width,
+  int height,
+  int radius,
+);
+
+@Native<
+  Int32 Function(Pointer<Uint8>, Uint32, Uint32, Double, Double, Double, Uint32)
+>(symbol: 'fr_mandelbrot_rgba')
+external int frMandelbrotRgbaBlocking(
+  Pointer<Uint8> out,
+  int width,
+  int height,
+  double centerX,
+  double centerY,
+  double scale,
+  int maxIter,
+);
+
+@Native<Int32 Function(Pointer<Double>, Size)>(
+  symbol: 'fr_sort_f64',
+  isLeaf: true,
+)
+external int frSortF64(Pointer<Double> data, int len);
+
+@Native<Int32 Function(Pointer<Double>, Size)>(symbol: 'fr_sort_f64')
+external int frSortF64Blocking(Pointer<Double> data, int len);
+
+@Native<Uint64 Function(Uint64)>(symbol: 'fr_count_primes')
+external int frCountPrimesBlocking(int limit);
+
+@Native<
+  Int32 Function(Pointer<Double>, Pointer<Double>, Size, Pointer<Double>)
+>(symbol: 'fr_dot_f64', isLeaf: true)
+external int frDotF64(
+  Pointer<Double> a,
+  Pointer<Double> b,
+  int len,
+  Pointer<Double> out,
+);
