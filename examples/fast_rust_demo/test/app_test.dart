@@ -37,6 +37,7 @@ void main() {
     expect(find.text('Benchmark'), findsOneWidget);
     expect(find.text('Fractal'), findsOneWidget);
     expect(find.text('Live blur'), findsOneWidget);
+    expect(find.text('Paint'), findsOneWidget);
     expect(find.text('Run all'), findsOneWidget);
     // Heavy demos are built lazily, not at startup.
     expect(find.byType(FractalPage), findsNothing);
@@ -63,6 +64,41 @@ void main() {
       () => !textOf(tester, 'blur-ms').startsWith('Working'),
     );
     expect(textOf(tester, 'blur-ms'), contains('ms per frame'));
+  });
+
+  testWidgets('paint page fills regions by tap and in auto mode', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const FastRustDemo());
+    await tester.tap(find.text('Paint'));
+    await tester.pump();
+    await pumpUntil(tester, () => find.byType(RawImage).evaluate().isNotEmpty);
+
+    // A vertical drag across the picture paints (it must not scroll).
+    final canvas = find.byKey(const Key('paint-canvas'));
+    final box = tester.getRect(canvas);
+    await tester.dragFrom(
+      box.topCenter + Offset(box.width * 0.13, box.height * 0.1),
+      Offset(0, box.height * 0.8),
+    );
+    await tester.pump();
+    expect(textOf(tester, 'paint-ms'), matches(RegExp(r'^Filled \d+ px in')));
+    expect(tester.getRect(canvas), box, reason: 'page did not scroll');
+
+    await tester.tap(find.text('Auto'));
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(textOf(tester, 'paint-fps'), endsWith('FPS'));
+    expect(textOf(tester, 'paint-ms'), contains('regions/frame'));
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
   });
 
   test('benchmark case runs on an isolate', () async {

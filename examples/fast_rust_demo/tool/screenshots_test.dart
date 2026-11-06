@@ -121,4 +121,30 @@ void main() {
       matchesGoldenFile('../../../docs/images/screenshot-blur.png'),
     );
   });
+
+  testWidgets('paint', (tester) async {
+    await phone(tester);
+    await tester.tap(find.text('Paint'));
+    await tester.pump();
+    await _settle(tester, () => find.byType(RawImage).evaluate().isNotEmpty);
+    // Colour the page with a burst of auto fills, then stop.
+    await tester.tap(find.text('Auto'));
+    await _wait(tester, 1200);
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    // A real tap so the caption shows a measured single fill.
+    final canvas = tester.getRect(find.byKey(const Key('paint-canvas')));
+    for (final f in [0.37, 0.52, 0.61, 0.44, 0.73]) {
+      await tester.tapAt(
+        canvas.topLeft + Offset(canvas.width * f, canvas.height * (1 - f)),
+      );
+      await tester.pump();
+      if (_text(tester, 'paint-ms').startsWith('Filled')) break;
+    }
+    await _wait(tester, 800);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-paint.png'),
+    );
+  });
 }
