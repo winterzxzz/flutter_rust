@@ -5,6 +5,7 @@
 //! status code (see [`Status`]). This keeps the Dart side zero-copy: Dart
 //! passes the address of its own typed data and Rust works on it in place.
 
+pub mod coloring;
 pub mod fractal;
 pub mod hash;
 pub mod image;
@@ -176,6 +177,85 @@ pub unsafe extern "C" fn fr_mandelbrot_rgba(
     Status::Ok as i32
 }
 
+/// Renders a pixel-art coloring page (`cells` regions on `block`-pixel
+/// squares) into an RGBA8888 buffer.
+///
+/// # Safety
+/// `out` valid for `width * height * 4` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn fr_coloring_page_rgba(
+    out: *mut u8,
+    width: u32,
+    height: u32,
+    cells: u32,
+    block: u32,
+    seed: u64,
+) -> i32 {
+    if cells == 0
+        || cells > coloring::MAX_CELLS
+        || block == 0
+        || block > coloring::MAX_BLOCK
+        || coloring::page_work(width as usize, height as usize, cells as usize, block as usize)
+            > coloring::MAX_PAGE_WORK
+    {
+        return Status::InvalidArgument as i32;
+    }
+    let Some(len) = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+    else {
+        return Status::InvalidArgument as i32;
+    };
+    let out = try_slice!(slice_mut(out, len));
+    coloring::coloring_page_rgba(
+        out,
+        width as usize,
+        height as usize,
+        cells as usize,
+        block as usize,
+        seed,
+    );
+    Status::Ok as i32
+}
+
+/// Flood-fills the region around `(x, y)` with `color` (`0xRRGGBBAA`).
+/// Returns the number of painted pixels, or a negative [`Status`].
+///
+/// # Safety
+/// `rgba` valid for `width * height * 4` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn fr_flood_fill_rgba(
+    rgba: *mut u8,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    color: u32,
+    tolerance: u32,
+) -> i64 {
+    if x >= width || y >= height || tolerance > 255 || width as u64 * height as u64 > u32::MAX as u64 {
+        return Status::InvalidArgument as i64;
+    }
+    let Some(len) = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+    else {
+        return Status::InvalidArgument as i64;
+    };
+    let Some(rgba) = slice_mut(rgba, len) else {
+        return Status::NullPointer as i64;
+    };
+    coloring::flood_fill_rgba(
+        rgba,
+        width as usize,
+        height as usize,
+        x as usize,
+        y as usize,
+        color.to_be_bytes(),
+        tolerance as u8,
+    ) as i64
+}
+
 /// Sorts `data[0..len]` ascending in place using IEEE-754 total order.
 ///
 /// # Safety
@@ -239,5 +319,18 @@ mod tests {
         assert_eq!(fr_add_i64(i64::MAX, 1), i64::MIN);
         assert!(fr_thread_count() >= 1);
         assert_eq!(fr_count_primes(u64::MAX), u64::MAX);
+        unsafe {
+            let mut px = [255u8; 16];
+            assert_eq!(fr_flood_fill_rgba(px.as_mut_ptr(), 2, 2, 2, 0, 0, 0), -2);
+            assert_eq!(fr_flood_fill_rgba(std::ptr::null_mut(), 2, 2, 0, 0, 0, 0), -1);
+            assert_eq!(fr_flood_fill_rgba(px.as_mut_ptr(), 2, 2, 0, 0, 0xFF0000FF, 0), 4);
+            assert_eq!(&px[..4], &[255, 0, 0, 255]);
+            assert_eq!(fr_coloring_page_rgba(px.as_mut_ptr(), 2, 2, 0, 1, 0), -2);
+            // 4096x4096 squares x 65536 cells is far beyond the work cap.
+            assert_eq!(
+                fr_coloring_page_rgba(std::ptr::null_mut(), 4096, 4096, 65536, 1, 0),
+                -2
+            );
+        }
     }
 }
