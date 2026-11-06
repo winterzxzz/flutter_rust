@@ -99,3 +99,28 @@ external int frDotF64(
   int len,
   Pointer<Double> out,
 );
+
+@Native<Int32 Function(Pointer<Uint8>, Uint32, Uint32, Uint32, Uint32, Uint64)>(
+  symbol: 'fr_coloring_page_rgba',
+)
+external int frColoringPageRgbaBlocking(
+  Pointer<Uint8> out,
+  int width,
+  int height,
+  int cells,
+  int block,
+  int seed,
+);
+
+@Native<
+  Int64 Function(Pointer<Uint8>, Uint32, Uint32, Uint32, Uint32, Uint32, Uint32)
+>(symbol: 'fr_flood_fill_rgba', isLeaf: true)
+external int frFloodFillRgba(
+  Pointer<Uint8> rgba,
+  int width,
+  int height,
+  int x,
+  int y,
+  int color,
+  int tolerance,
+);
