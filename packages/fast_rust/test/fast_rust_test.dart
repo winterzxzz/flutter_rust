@@ -785,4 +785,184 @@ void validationAndAsync() {
       );
     });
   });
+
+  group('photo to coloring page', () {
+    const w = 150, h = 110;
+    final photo = FastRust.mandelbrotRgba(
+      width: w,
+      height: h,
+      centerX: -0.7453,
+      centerY: 0.1127,
+      scale: 0.02 / w,
+      maxIterations: 300,
+    );
+
+    test('matches the Dart reference for several settings', () {
+      for (final (colors, smooth, minRegion, lineWidth) in [
+        (10, 2, 64, 2),
+        (4, 0, 0, 1),
+        (16, 4, 200, 3),
+        (1, 1, 10, 1),
+      ]) {
+        final a = FastRust.photoToColoringPage(
+          photo,
+          width: w,
+          height: h,
+          colors: colors,
+          smooth: smooth,
+          minRegion: minRegion,
+          lineWidth: lineWidth,
+        );
+        final b = DartReference.photoToColoringPage(
+          photo,
+          width: w,
+          height: h,
+          colors: colors,
+          smooth: smooth,
+          minRegion: minRegion,
+          lineWidth: lineWidth,
+        );
+        final why =
+            'colors $colors smooth $smooth min $minRegion lw $lineWidth';
+        expect(a.palette, b.palette, reason: why);
+        expect(a.labels, b.labels, reason: why);
+        expect(a.rgba, b.rgba, reason: why);
+      }
+    });
+
+    test('page is black and white, framed, and labels match the ink', () {
+      final page = FastRust.photoToColoringPage(photo, width: w, height: h);
+      final px = page.rgba;
+      var ink = 0;
+      for (var i = 0; i < w * h; i++) {
+        final v = px[i * 4];
+        expect(v == 0 || v == 255, isTrue);
+        expect(px[i * 4 + 1], v);
+        expect(px[i * 4 + 3], 255);
+        expect(page.labels[i] == FastRust.lineLabel, v == 0);
+        if (v == 0) ink++;
+      }
+      expect(px.sublist(0, 4), [0, 0, 0, 255], reason: 'frame');
+      expect(ink, inInclusiveRange(w * h ~/ 20, w * h ~/ 2));
+      // The page is fillable: a bucket fill stays inside one region.
+      final x = page.labels.indexWhere((l) => l != FastRust.lineLabel);
+      final n = FastRust.floodFillRgba(
+        page.rgba,
+        width: w,
+        height: h,
+        x: x % w,
+        y: x ~/ w,
+        color: 0xff0000ff,
+      );
+      expect(n, lessThan(w * h - ink));
+    });
+
+    test('async matches sync, and validation', () async {
+      final a = await FastRust.photoToColoringPageAsync(
+        photo,
+        width: w,
+        height: h,
+      );
+      final b = FastRust.photoToColoringPage(photo, width: w, height: h);
+      expect(a.rgba, b.rgba);
+      expect(
+        () => FastRust.photoToColoringPage(
+          photo,
+          width: w,
+          height: h,
+          colors: 33,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.photoToColoringPage(
+          photo,
+          width: w,
+          height: h,
+          lineWidth: 0,
+        ),
+        throwsRangeError,
+      );
+      final empty = FastRust.photoToColoringPage(
+        Uint8List(0),
+        width: 0,
+        height: 0,
+        colors: 3,
+      );
+      expect(empty.palette, Uint8List(12));
+    });
+  });
+
+  group('falling sand', () {
+    Uint8List world(int w, int h, int seed) {
+      final rng = Random(seed);
+      return Uint8List.fromList(
+        List.generate(w * h, (i) {
+          final r = rng.nextInt(10);
+          return r < 3
+              ? SandMaterial.sand
+              : r < 5
+              ? SandMaterial.water
+              : r < 6
+              ? SandMaterial.wall
+              : SandMaterial.empty;
+        }),
+      );
+    }
+
+    test('steps match the Dart reference cell for cell', () {
+      for (final (w, h) in [(64, 48), (97, 31), (1, 9), (5, 2)]) {
+        final a = world(w, h, w + h), b = Uint8List.fromList(a);
+        for (var f = 0; f < 60; f++) {
+          final na = FastRust.sandStep(a, width: w, height: h, frame: f);
+          final nb = DartReference.sandStep(b, width: w, height: h, frame: f);
+          expect(na, nb, reason: '${w}x$h frame $f');
+          expect(a, b, reason: '${w}x$h frame $f');
+        }
+      }
+    });
+
+    test('conserves material; sand alone comes to rest', () {
+      const w = 40, h = 30;
+      final cells = world(w, h, 3);
+      int countOf(Uint8List c, int m) => c.where((v) => v == m).length;
+      final before = [for (var m = 0; m < 4; m++) countOf(cells, m)];
+      for (var f = 0; f < 300; f++) {
+        FastRust.sandStep(cells, width: w, height: h, frame: f);
+      }
+      expect([for (var m = 0; m < 4; m++) countOf(cells, m)], before);
+
+      // Water keeps sloshing on a flat floor; sand and walls settle.
+      final dry = Uint8List.fromList(
+        world(w, h, 4).map((c) => c == SandMaterial.water ? 0 : c).toList(),
+      );
+      var moved = 1, f = 0;
+      while (moved > 0 && f < 2000) {
+        moved = FastRust.sandStep(dry, width: w, height: h, frame: f++);
+      }
+      expect(f, lessThan(2000), reason: 'sand settles');
+    });
+
+    test('render matches the Dart reference, and validation', () {
+      const w = 33, h = 21;
+      final cells = world(w, h, 9);
+      final a = Uint8List(w * h * 4), b = Uint8List(w * h * 4);
+      FastRust.sandRenderRgba(cells, a, width: w, height: h);
+      DartReference.sandRenderRgba(cells, b, width: w, height: h);
+      expect(a, b);
+      expect(
+        () => FastRust.sandStep(
+          Uint8List.fromList([0, 9]),
+          width: 1,
+          height: 2,
+          frame: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FastRust.sandStep(Uint8List(3), width: 2, height: 2, frame: 0),
+        throwsArgumentError,
+      );
+    });
+  });
 }

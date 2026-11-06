@@ -41,6 +41,17 @@ void _checkImage(Uint8List rgba, int width, int height) {
   }
 }
 
+void _checkCells(Uint8List cells, int width, int height) {
+  RangeError.checkValueInInterval(width, 0, _maxU32, 'width');
+  RangeError.checkValueInInterval(height, 0, _maxU32, 'height');
+  if (cells.length != width * height) {
+    throw ArgumentError(
+      'cells.length (${cells.length}) must equal width * height '
+      '($width x $height)',
+    );
+  }
+}
+
 void _checkDistances(Uint32List distances, int width, int height) {
   if (distances.length != width * height) {
     throw ArgumentError(
@@ -61,6 +72,37 @@ Uint8List _onNativeCopy(Uint8List data, void Function(Pointer<Uint8>) body) {
   } finally {
     malloc.free(ptr);
   }
+}
+
+/// A coloring page made from a photo by [FastRust.photoToColoringPage].
+final class ColoringPage {
+  const ColoringPage({
+    required this.rgba,
+    required this.labels,
+    required this.palette,
+    required this.width,
+    required this.height,
+  });
+
+  /// Black outlines on white, RGBA8888.
+  final Uint8List rgba;
+
+  /// Colour cluster of every pixel, or [FastRust.lineLabel] on outlines.
+  final Uint8List labels;
+
+  /// Cluster colours as RGBA8888 (4 bytes per cluster): the photo's own
+  /// colours, handy for a "reveal" or color-by-number mode.
+  final Uint8List palette;
+
+  final int width, height;
+}
+
+/// Cell values of the falling-sand grid used by [FastRust.sandStep].
+abstract final class SandMaterial {
+  static const empty = 0;
+  static const wall = 1;
+  static const sand = 2;
+  static const water = 3;
 }
 
 /// Entry point for the Rust-backed kernels.
@@ -515,6 +557,154 @@ abstract final class FastRust {
     }
     if (n < 0) throw FastRustException('paintByDistanceRgba', n);
     return n;
+  }
+
+  /// Largest accepted `colors` for [photoToColoringPage].
+  static const maxPageColors = 32;
+
+  /// Largest accepted `smooth` blur radius for [photoToColoringPage].
+  static const maxPageSmooth = 16;
+
+  /// Largest accepted `lineWidth` for [photoToColoringPage].
+  static const maxPageLineWidth = 8;
+
+  /// Value of [ColoringPage.labels] on outline pixels.
+  static const lineLabel = 255;
+
+  /// Turns a photo into a coloring page: black outlines around regions of
+  /// similar colour on a white background, ready for [floodFillRgba] or the
+  /// spreading fill.
+  ///
+  /// Steps (all in Rust, multi-threaded where possible): a box blur of
+  /// radius [smooth] removes texture; k-means groups the pixels into
+  /// [colors] clusters; two 3x3 majority filters remove speckles; regions
+  /// smaller than [minRegion] pixels are merged into the neighbour they
+  /// share the most border with; outlines [lineWidth] pixels wide are drawn
+  /// where the cluster changes, plus a frame.
+  ///
+  /// Fewer [colors] and a larger [minRegion] give a simpler page. Non-leaf
+  /// call on a native copy; use [photoToColoringPageAsync] on large photos.
+  static ColoringPage photoToColoringPage(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    int colors = 10,
+    int smooth = 2,
+    int minRegion = 64,
+    int lineWidth = 2,
+  }) {
+    _checkImage(rgba, width, height);
+    RangeError.checkValueInInterval(colors, 1, maxPageColors, 'colors');
+    RangeError.checkValueInInterval(smooth, 0, maxPageSmooth, 'smooth');
+    RangeError.checkValueInInterval(minRegion, 0, _maxU32, 'minRegion');
+    RangeError.checkValueInInterval(
+      lineWidth,
+      1,
+      maxPageLineWidth,
+      'lineWidth',
+    );
+    final n = width * height;
+    final total = n * 4 * 2 + n + colors * 4;
+    // calloc: a zero-sized image leaves out/labels/palette untouched.
+    final ptr = calloc<Uint8>(total == 0 ? 1 : total);
+    try {
+      final src = ptr, out = ptr + n * 4, labels = ptr + n * 8;
+      final palette = ptr + n * 9;
+      src.asTypedList(n * 4).setAll(0, rgba);
+      _check(
+        'photoToColoringPage',
+        native.frPhotoToColoringPageBlocking(
+          src,
+          out,
+          labels,
+          palette,
+          width,
+          height,
+          colors,
+          smooth,
+          minRegion,
+          lineWidth,
+        ),
+      );
+      return ColoringPage(
+        rgba: Uint8List.fromList(out.asTypedList(n * 4)),
+        labels: Uint8List.fromList(labels.asTypedList(n)),
+        palette: Uint8List.fromList(palette.asTypedList(colors * 4)),
+        width: width,
+        height: height,
+      );
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  /// [photoToColoringPage] on a background isolate.
+  static Future<ColoringPage> photoToColoringPageAsync(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    int colors = 10,
+    int smooth = 2,
+    int minRegion = 64,
+    int lineWidth = 2,
+  }) {
+    _checkImage(rgba, width, height);
+    return Isolate.run(
+      () => photoToColoringPage(
+        rgba,
+        width: width,
+        height: height,
+        colors: colors,
+        smooth: smooth,
+        minRegion: minRegion,
+        lineWidth: lineWidth,
+      ),
+    );
+  }
+
+  /// Advances a falling-sand simulation by one step, in place.
+  ///
+  /// [cells] holds one [SandMaterial] value per cell, row by row. Sand falls,
+  /// slides off slopes and sinks through water; water falls and spreads
+  /// sideways; walls never move. Rows are scanned bottom-up and every
+  /// particle moves at most once per step. Random choices are a hash of
+  /// (x, y, [frame]), so a given grid and frame always give the same result.
+  /// Returns the number of particles that moved. Zero-copy leaf call;
+  /// single-threaded (the scan is sequential).
+  static int sandStep(
+    Uint8List cells, {
+    required int width,
+    required int height,
+    required int frame,
+  }) {
+    _checkCells(cells, width, height);
+    RangeError.checkValueInInterval(frame, 0, _maxU32, 'frame');
+    final n = native.frSandStep(cells.address, width, height, frame);
+    if (n == -2) {
+      throw ArgumentError('cells must hold SandMaterial values (0..3)');
+    }
+    if (n < 0) throw FastRustException('sandStep', n);
+    return n;
+  }
+
+  /// Renders a falling-sand grid into [rgba] (`width * height * 4` bytes).
+  /// Zero-copy leaf call, multi-threaded.
+  static void sandRenderRgba(
+    Uint8List cells,
+    Uint8List rgba, {
+    required int width,
+    required int height,
+  }) {
+    _checkCells(cells, width, height);
+    _checkImage(rgba, width, height);
+    final status = native.frSandRenderRgba(
+      cells.address,
+      rgba.address,
+      width,
+      height,
+    );
+    if (status == -2) throw ArgumentError('cells and rgba must not overlap');
+    _check('sandRenderRgba', status);
   }
 
   /// Dot product of two equally long vectors. Zero-copy leaf call.

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'api.dart' show ColoringPage;
+
 /// Pure-Dart implementations of the same algorithms as [FastRust], written
 /// idiomatically but with care for performance (typed data, no allocation
 /// in hot loops). Used as a correctness oracle and as the benchmark
@@ -415,6 +417,373 @@ abstract final class DartReference {
       n++;
     }
     return n;
+  }
+
+  /// Same pipeline as [FastRust.photoToColoringPage], single-threaded.
+  static ColoringPage photoToColoringPage(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    int colors = 10,
+    int smooth = 2,
+    int minRegion = 64,
+    int lineWidth = 2,
+  }) {
+    final n = width * height;
+    final k = colors.clamp(1, 32);
+    final out = Uint8List(n * 4);
+    final labelsOut = Uint8List(n);
+    final palette = Uint8List(k * 4);
+    if (n == 0) {
+      return ColoringPage(
+        rgba: out,
+        labels: labelsOut,
+        palette: palette,
+        width: width,
+        height: height,
+      );
+    }
+    final work = Uint8List.fromList(rgba);
+    boxBlurRgba(
+      work,
+      width: width,
+      height: height,
+      radius: smooth.clamp(0, 16),
+    );
+
+    int luma(int p) =>
+        (77 * work[p] + 150 * work[p + 1] + 29 * work[p + 2]) >> 8;
+
+    // Initial centroids from luminance quantiles.
+    final count = List<int>.filled(256, 0);
+    final sum = List<int>.filled(256 * 3, 0);
+    for (var i = 0; i < n; i++) {
+      final p = i * 4, l = luma(p);
+      count[l]++;
+      sum[l * 3] += work[p];
+      sum[l * 3 + 1] += work[p + 1];
+      sum[l * 3 + 2] += work[p + 2];
+    }
+    final cr = List<int>.filled(k, 0), cg = List<int>.filled(k, 0);
+    final cb = List<int>.filled(k, 0);
+    var l = 0, seen = 0;
+    for (var part = 0; part < k; part++) {
+      final end = n * (part + 1) ~/ k;
+      var cnt = 0, sr = 0, sg = 0, sb = 0;
+      while (l < 256 && seen + count[l] <= end) {
+        cnt += count[l];
+        sr += sum[l * 3];
+        sg += sum[l * 3 + 1];
+        sb += sum[l * 3 + 2];
+        seen += count[l];
+        l++;
+      }
+      if (cnt == 0) {
+        final g = l < 255 ? l : 255;
+        cr[part] = g;
+        cg[part] = g;
+        cb[part] = g;
+      } else {
+        cr[part] = sr ~/ cnt;
+        cg[part] = sg ~/ cnt;
+        cb[part] = sb ~/ cnt;
+      }
+    }
+
+    final labels = Uint8List(n);
+    void assign() {
+      for (var i = 0; i < n; i++) {
+        final p = i * 4;
+        var best = -1, bestD = 0;
+        for (var c = 0; c < k; c++) {
+          final dr = work[p] - cr[c], dg = work[p + 1] - cg[c];
+          final db = work[p + 2] - cb[c];
+          final d = dr * dr + dg * dg + db * db;
+          if (best < 0 || d < bestD) {
+            best = c;
+            bestD = d;
+          }
+        }
+        labels[i] = best;
+      }
+    }
+
+    for (var it = 0; it < 6; it++) {
+      assign();
+      final cnt = List<int>.filled(k, 0);
+      final sr = List<int>.filled(k, 0), sg = List<int>.filled(k, 0);
+      final sb = List<int>.filled(k, 0);
+      for (var i = 0; i < n; i++) {
+        final c = labels[i], p = i * 4;
+        cnt[c]++;
+        sr[c] += work[p];
+        sg[c] += work[p + 1];
+        sb[c] += work[p + 2];
+      }
+      for (var c = 0; c < k; c++) {
+        if (cnt[c] > 0) {
+          cr[c] = sr[c] ~/ cnt[c];
+          cg[c] = sg[c] ~/ cnt[c];
+          cb[c] = sb[c] ~/ cnt[c];
+        }
+      }
+    }
+    assign();
+
+    // Majority filter, twice.
+    final hist = List<int>.filled(k, 0);
+    for (var pass = 0; pass < 2; pass++) {
+      final prev = Uint8List.fromList(labels);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          hist.fillRange(0, k, 0);
+          for (var dy = -1; dy <= 1; dy++) {
+            final yy = (y + dy).clamp(0, height - 1);
+            for (var dx = -1; dx <= 1; dx++) {
+              final xx = (x + dx).clamp(0, width - 1);
+              hist[prev[yy * width + xx]]++;
+            }
+          }
+          final cur = prev[y * width + x];
+          var max = 0;
+          for (final h in hist) {
+            if (h > max) max = h;
+          }
+          labels[y * width + x] = hist[cur] == max ? cur : hist.indexOf(max);
+        }
+      }
+    }
+
+    // Merge small regions in scan order of their first pixel; repeat until
+    // stable (at most 8 passes), like the Rust side.
+    for (var pass = 0; minRegion > 1 && pass < 8; pass++) {
+      var changed = false;
+      final comp = Int32List(n)..fillRange(0, n, -1);
+      final members = <List<int>>[];
+      for (var start = 0; start < n; start++) {
+        if (comp[start] >= 0) continue;
+        final id = members.length, lab = labels[start];
+        final list = <int>[];
+        final stack = <int>[start];
+        comp[start] = id;
+        while (stack.isNotEmpty) {
+          final i = stack.removeLast();
+          list.add(i);
+          final x = i % width, y = i ~/ width;
+          void visit(int j) {
+            if (comp[j] < 0 && labels[j] == lab) {
+              comp[j] = id;
+              stack.add(j);
+            }
+          }
+
+          if (x > 0) visit(i - 1);
+          if (x + 1 < width) visit(i + 1);
+          if (y > 0) visit(i - width);
+          if (y + 1 < height) visit(i + width);
+        }
+        members.add(list);
+      }
+      for (final pixels in members) {
+        if (pixels.length >= minRegion) continue;
+        pixels.sort();
+        final own = labels[pixels[0]];
+        hist.fillRange(0, k, 0);
+        for (final i in pixels) {
+          final x = i % width, y = i ~/ width;
+          void count(int j) {
+            final lj = labels[j];
+            if (lj != own) hist[lj]++;
+          }
+
+          if (x > 0) count(i - 1);
+          if (x + 1 < width) count(i + 1);
+          if (y > 0) count(i - width);
+          if (y + 1 < height) count(i + width);
+        }
+        var max = 0;
+        for (final h in hist) {
+          if (h > max) max = h;
+        }
+        if (max == 0) continue;
+        final target = hist.indexOf(max);
+        for (final i in pixels) {
+          labels[i] = target;
+        }
+        changed = true;
+      }
+      if (!changed) break;
+    }
+
+    // Outlines.
+    final lw = lineWidth.clamp(1, 8);
+    final a = (lw - 1) ~/ 2, b = lw - 1 - a;
+    final seeds = Uint8List(n);
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final i = y * width + x, lab = labels[i];
+        if ((x + 1 < width && labels[i + 1] != lab) ||
+            (y + 1 < height && labels[i + width] != lab)) {
+          seeds[i] = 1;
+        }
+      }
+    }
+    final horiz = Uint8List(n);
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final lo = x - b < 0 ? 0 : x - b;
+        final hi = x + a > width - 1 ? width - 1 : x + a;
+        for (var xx = lo; xx <= hi; xx++) {
+          if (seeds[y * width + xx] != 0) {
+            horiz[y * width + x] = 1;
+            break;
+          }
+        }
+      }
+    }
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        var line = x < lw || y < lw || x + lw >= width || y + lw >= height;
+        if (!line) {
+          final lo = y - b < 0 ? 0 : y - b;
+          final hi = y + a > height - 1 ? height - 1 : y + a;
+          for (var yy = lo; yy <= hi; yy++) {
+            if (horiz[yy * width + x] != 0) {
+              line = true;
+              break;
+            }
+          }
+        }
+        final i = y * width + x, p = i * 4;
+        final v = line ? 0 : 255;
+        out[p] = v;
+        out[p + 1] = v;
+        out[p + 2] = v;
+        out[p + 3] = 255;
+        labelsOut[i] = line ? 255 : labels[i];
+      }
+    }
+    for (var c = 0; c < k; c++) {
+      palette[c * 4] = cr[c];
+      palette[c * 4 + 1] = cg[c];
+      palette[c * 4 + 2] = cb[c];
+      palette[c * 4 + 3] = 255;
+    }
+    return ColoringPage(
+      rgba: out,
+      labels: labelsOut,
+      palette: palette,
+      width: width,
+      height: height,
+    );
+  }
+
+  /// Same 32-bit hash as the Rust sand kernel.
+  static int _sandHash(int x, int y, int frame) {
+    var h =
+        ((x * 0x9E3779B1) ^ (y * 0x85EBCA77) ^ (frame * 0xC2B2AE3D)) &
+        0xFFFFFFFF;
+    h ^= h >>> 15;
+    h = (h * 0x2C1B3C6D) & 0xFFFFFFFF;
+    h ^= h >>> 12;
+    return h;
+  }
+
+  /// Same rules and scan order as [FastRust.sandStep].
+  static int sandStep(
+    Uint8List cells, {
+    required int width,
+    required int height,
+    required int frame,
+  }) {
+    if (width == 0 || height < 2) return 0;
+    const empty = 0, sand = 2, water = 3, movedBit = 0x80;
+    var moved = 0;
+    final rightward = frame % 2 == 0;
+    for (var y = height - 2; y >= 0; y--) {
+      for (var k = 0; k < width; k++) {
+        final x = rightward ? k : width - 1 - k;
+        final i = y * width + x;
+        final c = cells[i];
+        if (c & movedBit != 0) continue;
+        final kind = c & 0x7F;
+        if (kind != sand && kind != water) continue;
+        final below = i + width;
+        bool free(int t) => t == empty || (kind == sand && t == water);
+        var target = -1;
+        if (free(cells[below])) {
+          target = below;
+        } else {
+          final h = _sandHash(x, y, frame);
+          final firstLeft = h & 1 == 0;
+          for (final left in [firstLeft, !firstLeft]) {
+            if (left && x > 0 && free(cells[below - 1])) {
+              target = below - 1;
+              break;
+            }
+            if (!left && x + 1 < width && free(cells[below + 1])) {
+              target = below + 1;
+              break;
+            }
+          }
+          if (target < 0 && kind == water) {
+            final firstLeft = h & 2 == 0;
+            for (final left in [firstLeft, !firstLeft]) {
+              if (left && x > 0 && cells[i - 1] == empty) {
+                target = i - 1;
+                break;
+              }
+              if (!left && x + 1 < width && cells[i + 1] == empty) {
+                target = i + 1;
+                break;
+              }
+            }
+          }
+        }
+        if (target >= 0) {
+          final displaced = cells[target];
+          cells[i] = displaced == empty ? empty : displaced | movedBit;
+          cells[target] = kind | movedBit;
+          moved++;
+        }
+      }
+    }
+    for (var i = 0; i < cells.length; i++) {
+      cells[i] &= 0x7F;
+    }
+    return moved;
+  }
+
+  /// Same colours as [FastRust.sandRenderRgba].
+  static void sandRenderRgba(
+    Uint8List cells,
+    Uint8List rgba, {
+    required int width,
+    required int height,
+  }) {
+    for (var i = 0; i < width * height; i++) {
+      final v = _sandHash(i, 0x51ED, 7) & 31;
+      final p = i * 4;
+      switch (cells[i] & 0x7F) {
+        case 1:
+          rgba[p] = 90 + v;
+          rgba[p + 1] = 92 + v;
+          rgba[p + 2] = 104 + v;
+        case 2:
+          rgba[p] = 214 + v ~/ 2;
+          rgba[p + 1] = 178 + v ~/ 2;
+          rgba[p + 2] = 92 + v;
+        case 3:
+          rgba[p] = 40;
+          rgba[p + 1] = 110 + v ~/ 2;
+          rgba[p + 2] = 230;
+        default:
+          rgba[p] = 16;
+          rgba[p + 1] = 20;
+          rgba[p + 2] = 32;
+      }
+      rgba[p + 3] = 255;
+    }
   }
 
   static int _scanline(

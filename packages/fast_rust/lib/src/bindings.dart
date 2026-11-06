@@ -197,3 +197,47 @@ external int frPaintByDistance(
   int strength,
   int tint,
 );
+
+@Native<
+  Int32 Function(
+    Pointer<Uint8>,
+    Pointer<Uint8>,
+    Pointer<Uint8>,
+    Pointer<Uint8>,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+  )
+>(symbol: 'fr_photo_to_coloring_page')
+external int frPhotoToColoringPageBlocking(
+  Pointer<Uint8> src,
+  Pointer<Uint8> out,
+  Pointer<Uint8> labels,
+  Pointer<Uint8> palette,
+  int width,
+  int height,
+  int colors,
+  int smooth,
+  int minRegion,
+  int lineWidth,
+);
+
+@Native<Int64 Function(Pointer<Uint8>, Uint32, Uint32, Uint32)>(
+  symbol: 'fr_sand_step',
+  isLeaf: true,
+)
+external int frSandStep(Pointer<Uint8> cells, int width, int height, int frame);
+
+@Native<Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Uint32, Uint32)>(
+  symbol: 'fr_sand_render_rgba',
+  isLeaf: true,
+)
+external int frSandRenderRgba(
+  Pointer<Uint8> cells,
+  Pointer<Uint8> out,
+  int width,
+  int height,
+);

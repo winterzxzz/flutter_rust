@@ -6,5 +6,6 @@
 /// `Isolate.run`, for work that takes longer than a frame (~16 ms).
 library;
 
-export 'src/api.dart' show FastRust, FastRustException;
+export 'src/api.dart'
+    show ColoringPage, FastRust, FastRustException, SandMaterial;
 export 'src/dart_reference.dart' show DartReference;

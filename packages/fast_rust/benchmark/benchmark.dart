@@ -185,6 +185,52 @@ void main(List<String> args) {
     ),
   );
 
+  // Photo to coloring page on the 1920x1080 Mandelbrot render ("photo").
+  final photo = FastRust.mandelbrotRgba(
+    width: w,
+    height: h,
+    centerX: -0.7453,
+    centerY: 0.1127,
+    scale: 0.0065 / w,
+    maxIterations: 300,
+  );
+  // Same settings as the demo app: 6 colors, blur 5, merge under 0.2%.
+  _case(
+    'Photo to coloring page 1920x1080',
+    () => DartReference.photoToColoringPage(
+      photo,
+      width: w,
+      height: h,
+      colors: 6,
+      smooth: 5,
+      minRegion: w * h ~/ 500,
+    ),
+    () => FastRust.photoToColoringPage(
+      photo,
+      width: w,
+      height: h,
+      colors: 6,
+      smooth: 5,
+      minRegion: w * h ~/ 500,
+    ),
+  );
+
+  // Falling sand: one step of a 1024x1024 grid that starts as random
+  // empty/wall/sand/water (25% each) and settles over the runs.
+  const sw = 1024;
+  final sandRng = Random(5);
+  final sandStart = Uint8List.fromList(
+    List.generate(sw * sw, (_) => sandRng.nextInt(4)),
+  );
+  final sandA = Uint8List.fromList(sandStart);
+  final sandB = Uint8List.fromList(sandStart);
+  var frameA = 0, frameB = 0;
+  _case(
+    'Falling sand step 1024x1024',
+    () => DartReference.sandStep(sandB, width: sw, height: sw, frame: frameB++),
+    () => FastRust.sandStep(sandA, width: sw, height: sw, frame: frameA++),
+  );
+
   final doubles = Float64List.fromList(
     List.generate(1000000, (_) => rnd.nextDouble()),
   );
