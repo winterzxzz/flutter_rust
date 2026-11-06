@@ -1,0 +1,22 @@
+[package]
+name = "fast_rust"
+version = "0.1.0"
+edition = "2021"
+# as_chunks / is_multiple_of.
+rust-version = "1.88"
+publish = false
+description = "Native core of the fast_rust Dart/Flutter package."
+
+[lib]
+# cdylib: loaded by Dart through native assets. rlib: lets `cargo test` link.
+crate-type = ["cdylib", "rlib"]
+
+# Zero dependencies on purpose: builds offline, fast, and on every target.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
