@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'api.dart' show ColoringPage;
@@ -786,6 +787,221 @@ abstract final class DartReference {
     }
   }
 
+  /// Same path tracer as [FastRust.pathTrace], single-threaded, with the
+  /// same operations in the same order, so the sums match bit for bit.
+  static void pathTrace(
+    Float64List accum, {
+    required int width,
+    required int height,
+    required Float64List camera,
+    required int firstSample,
+    int samples = 1,
+    int maxDepth = 6,
+  }) {
+    // Same input rules as FastRust.pathTrace.
+    if (accum.length != width * height * 3) {
+      throw ArgumentError('accum.length must equal width * height * 3');
+    }
+    if (camera.length != 19 || camera.any((v) => !v.isFinite)) {
+      throw ArgumentError('camera must hold 19 finite values');
+    }
+    RangeError.checkValueInInterval(firstSample, 0, 0xFFFFFFFF, 'firstSample');
+    RangeError.checkValueInInterval(samples, 1, 64, 'samples');
+    RangeError.checkValueInInterval(maxDepth, 1, 16, 'maxDepth');
+    final c = camera;
+    final origin = _V(c[0], c[1], c[2]), lowerLeft = _V(c[3], c[4], c[5]);
+    final horizontal = _V(c[6], c[7], c[8]), vertical = _V(c[9], c[10], c[11]);
+    final cu = _V(c[12], c[13], c[14]), cv = _V(c[15], c[16], c[17]);
+    final lensRadius = c[18];
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final pixel = y * width + x;
+        var sum = const _V(0, 0, 0);
+        for (var k = 0; k < samples; k++) {
+          final rng = _Rng(pixel, firstSample + k);
+          final u = (x + rng.f()) / width;
+          final v = ((height - 1 - y) + rng.f()) / height;
+          final lens = rng.inUnitDisk().scale(lensRadius);
+          final offset = cu.scale(lens.x).add(cv.scale(lens.y));
+          final from = origin.add(offset);
+          final target = lowerLeft
+              .add(horizontal.scale(u))
+              .add(vertical.scale(v));
+          sum = sum.add(_radiance(from, target.sub(from), rng, maxDepth));
+        }
+        final o = pixel * 3;
+        accum[o] += sum.x;
+        accum[o + 1] += sum.y;
+        accum[o + 2] += sum.z;
+      }
+    }
+  }
+
+  /// Same as [FastRust.pathResolveRgba].
+  static void pathResolveRgba(
+    Float64List accum,
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    required int sampleCount,
+  }) {
+    final inv = 1.0 / (sampleCount < 1 ? 1 : sampleCount);
+    for (var i = 0; i < width * height; i++) {
+      for (var c = 0; c < 3; c++) {
+        var v = accum[i * 3 + c] * inv;
+        // NaN (from a degenerate camera) shows as black, as in Rust.
+        v = v.isNaN ? 0.0 : (v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v));
+        rgba[i * 4 + c] = (math.sqrt(v) * 255.0 + 0.5).toInt();
+      }
+      rgba[i * 4 + 3] = 255;
+    }
+  }
+
+  static (double, int)? _hit(_V origin, _V dir) {
+    (double, int)? best;
+    final a = dir.lenSq();
+    for (var i = 0; i < _scene.length; i++) {
+      final s = _scene[i];
+      final oc = origin.sub(s.center);
+      final halfB = oc.dot(dir);
+      final c = oc.lenSq() - s.radius * s.radius;
+      final disc = halfB * halfB - a * c;
+      if (disc < 0.0) continue;
+      final sq = math.sqrt(disc);
+      final limit = best == null ? double.infinity : best.$1;
+      var t = (-halfB - sq) / a;
+      if (t <= 0.001 || t >= limit) {
+        t = (-halfB + sq) / a;
+        if (t <= 0.001 || t >= limit) continue;
+      }
+      best = (t, i);
+    }
+    return best;
+  }
+
+  static _V _reflect(_V v, _V n) => v.sub(n.scale(2.0 * v.dot(n)));
+
+  static _V _radiance(_V origin, _V dir, _Rng rng, int maxDepth) {
+    var throughput = const _V(1, 1, 1);
+    for (var depth = 0; depth < maxDepth; depth++) {
+      final h = _hit(origin, dir);
+      if (h == null) {
+        final unit = dir.unit();
+        final k = 0.5 * (unit.y + 1.0);
+        final sky = const _V(
+          1,
+          1,
+          1,
+        ).scale(1.0 - k).add(const _V(0.45, 0.65, 1.0).scale(k));
+        return throughput.mul(sky);
+      }
+      final (t, i) = h;
+      final s = _scene[i];
+      final p = origin.add(dir.scale(t));
+      final outward = p.sub(s.center).scale(1.0 / s.radius);
+      final front = dir.dot(outward) < 0.0;
+      final n = front ? outward : outward.scale(-1.0);
+      switch (s.kind) {
+        case _Mat.diffuse || _Mat.checker:
+          var albedo = s.albedo;
+          if (s.kind == _Mat.checker) {
+            final k = p.x.floorToDouble() + p.z.floorToDouble();
+            albedo = k - (k * 0.5).floorToDouble() * 2.0 == 0.0
+                ? s.albedo
+                : s.albedo2;
+          }
+          var d = n.add(rng.inUnitSphere().unit());
+          if (d.lenSq() < 1e-16) d = n;
+          origin = p;
+          dir = d;
+          throughput = throughput.mul(albedo);
+        case _Mat.metal:
+          final r = _reflect(
+            dir.unit(),
+            n,
+          ).add(rng.inUnitSphere().scale(s.param));
+          if (r.dot(n) <= 0.0) return const _V(0, 0, 0);
+          origin = p;
+          dir = r;
+          throughput = throughput.mul(s.albedo);
+        case _Mat.glass:
+          final ratio = front ? 1.0 / s.param : s.param;
+          final unit = dir.unit();
+          final cos = math.min(-unit.dot(n), 1.0);
+          final sin = math.sqrt(1.0 - cos * cos);
+          var r0 = (1.0 - ratio) / (1.0 + ratio);
+          r0 = r0 * r0;
+          final m = 1.0 - cos;
+          final schlick = r0 + (1.0 - r0) * (m * m * m * m * m);
+          if (ratio * sin > 1.0 || schlick > rng.f()) {
+            dir = _reflect(unit, n);
+          } else {
+            final perp = unit.add(n.scale(cos)).scale(ratio);
+            final par = n.scale(-math.sqrt((1.0 - perp.lenSq()).abs()));
+            dir = perp.add(par);
+          }
+          origin = p;
+      }
+    }
+    return const _V(0, 0, 0);
+  }
+
+  static const _scene = [
+    _Sphere(
+      _V(0, -1000, 0),
+      1000,
+      _Mat.checker,
+      _V(0.86, 0.86, 0.82),
+      _V(0.22, 0.30, 0.42),
+    ),
+    _Sphere(_V(0, 1, 0), 1, _Mat.glass, _V(0, 0, 0), _V(0, 0, 0), 1.5),
+    _Sphere(_V(-2.2, 1, 0.3), 1, _Mat.diffuse, _V(0.85, 0.28, 0.20)),
+    _Sphere(
+      _V(2.2, 1, 0.3),
+      1,
+      _Mat.metal,
+      _V(0.80, 0.70, 0.55),
+      _V(0, 0, 0),
+      0.02,
+    ),
+    _Sphere(_V(-1.9, 0.3, 1.9), 0.3, _Mat.diffuse, _V(0.95, 0.75, 0.20)),
+    _Sphere(
+      _V(-0.7, 0.25, 2.2),
+      0.25,
+      _Mat.metal,
+      _V(0.85, 0.85, 0.92),
+      _V(0, 0, 0),
+      0.15,
+    ),
+    _Sphere(_V(0.6, 0.3, 2.3), 0.3, _Mat.diffuse, _V(0.25, 0.70, 0.45)),
+    _Sphere(
+      _V(1.8, 0.25, 2.0),
+      0.25,
+      _Mat.glass,
+      _V(0, 0, 0),
+      _V(0, 0, 0),
+      1.5,
+    ),
+    _Sphere(_V(-3.4, 0.35, -1.5), 0.35, _Mat.diffuse, _V(0.30, 0.45, 0.90)),
+    _Sphere(
+      _V(3.3, 0.35, -1.4),
+      0.35,
+      _Mat.metal,
+      _V(0.95, 0.60, 0.30),
+      _V(0, 0, 0),
+      0.3,
+    ),
+    _Sphere(_V(0.3, 0.4, -2.6), 0.4, _Mat.diffuse, _V(0.70, 0.30, 0.80)),
+    _Sphere(
+      _V(-1.2, 0.3, -2.2),
+      0.3,
+      _Mat.glass,
+      _V(0, 0, 0),
+      _V(0, 0, 0),
+      1.5,
+    ),
+  ];
+
   static int _scanline(
     int width,
     int height,
@@ -823,5 +1039,80 @@ abstract final class DartReference {
       }
     }
     return painted;
+  }
+}
+
+enum _Mat { diffuse, checker, metal, glass }
+
+final class _Sphere {
+  const _Sphere(
+    this.center,
+    this.radius,
+    this.kind,
+    this.albedo, [
+    this.albedo2 = const _V(0, 0, 0),
+    this.param = 0,
+  ]);
+
+  final _V center;
+  final double radius;
+  final _Mat kind;
+  final _V albedo, albedo2;
+
+  /// Metal fuzz or glass index of refraction.
+  final double param;
+}
+
+/// 3-vector with the same operation order as the Rust `V`.
+final class _V {
+  const _V(this.x, this.y, this.z);
+
+  final double x, y, z;
+
+  _V add(_V o) => _V(x + o.x, y + o.y, z + o.z);
+  _V sub(_V o) => _V(x - o.x, y - o.y, z - o.z);
+  _V scale(double s) => _V(x * s, y * s, z * s);
+  _V mul(_V o) => _V(x * o.x, y * o.y, z * o.z);
+  double dot(_V o) => x * o.x + y * o.y + z * o.z;
+  double lenSq() => dot(this);
+  _V unit() => scale(1.0 / math.sqrt(lenSq()));
+}
+
+/// Same xorshift64 stream as the Rust path tracer.
+final class _Rng {
+  _Rng(int pixel, int sample) {
+    _s =
+        ((pixel + 1) * 0x9E3779B97F4A7C15) ^
+        ((sample + 1) * 0xD1B54A32D192ED03);
+    _s |= 1;
+    next();
+    next();
+  }
+
+  late int _s;
+
+  int next() {
+    var x = _s;
+    x ^= x << 13;
+    x ^= x >>> 7;
+    x ^= x << 17;
+    _s = x;
+    return x;
+  }
+
+  double f() => (next() >>> 11).toDouble() * (1.0 / 9007199254740992.0);
+
+  _V inUnitSphere() {
+    while (true) {
+      final p = _V(f() * 2.0 - 1.0, f() * 2.0 - 1.0, f() * 2.0 - 1.0);
+      if (p.lenSq() < 1.0) return p;
+    }
+  }
+
+  _V inUnitDisk() {
+    while (true) {
+      final p = _V(f() * 2.0 - 1.0, f() * 2.0 - 1.0, 0.0);
+      if (p.lenSq() < 1.0) return p;
+    }
   }
 }

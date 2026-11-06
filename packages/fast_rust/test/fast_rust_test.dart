@@ -965,4 +965,119 @@ void validationAndAsync() {
       );
     });
   });
+
+  group('path tracer', () {
+    test('matches the Dart reference bit for bit', () {
+      for (final (w, h, cam) in [
+        (32, 20, const RayCamera()),
+        (17, 23, const RayCamera(yaw: -1.1, pitch: 0.5, aperture: 0)),
+        (24, 24, const RayCamera(yaw: 2.6, distance: 6, fieldOfView: 50)),
+      ]) {
+        final camera = cam.toArray(w, h);
+        final a = Float64List(w * h * 3), b = Float64List(w * h * 3);
+        var n = 0;
+        for (final samples in [1, 3]) {
+          FastRust.pathTrace(
+            a,
+            width: w,
+            height: h,
+            camera: camera,
+            firstSample: n,
+            samples: samples,
+            maxDepth: 8,
+          );
+          DartReference.pathTrace(
+            b,
+            width: w,
+            height: h,
+            camera: camera,
+            firstSample: n,
+            samples: samples,
+            maxDepth: 8,
+          );
+          n += samples;
+          expect(a, b, reason: '${w}x$h after $n samples');
+        }
+        final ra = Uint8List(w * h * 4), rb = Uint8List(w * h * 4);
+        FastRust.pathResolveRgba(a, ra, width: w, height: h, sampleCount: n);
+        DartReference.pathResolveRgba(
+          b,
+          rb,
+          width: w,
+          height: h,
+          sampleCount: n,
+        );
+        expect(ra, rb);
+      }
+    });
+
+    test('image shows sky on top, floor below, and converges', () {
+      const w = 40, h = 30;
+      final camera = const RayCamera(aperture: 0).toArray(w, h);
+      final acc = Float64List(w * h * 3);
+      final rgba = Uint8List(w * h * 4);
+      FastRust.pathTrace(
+        acc,
+        width: w,
+        height: h,
+        camera: camera,
+        firstSample: 0,
+        samples: 16,
+      );
+      FastRust.pathResolveRgba(acc, rgba, width: w, height: h, sampleCount: 16);
+      int at(int x, int y, int c) => rgba[(y * w + x) * 4 + c];
+      expect(at(2, 0, 2), greaterThan(200), reason: 'sky is bright blue');
+      expect(at(2, 0, 2), greaterThanOrEqualTo(at(2, 0, 0)));
+      // More samples change the image less and less.
+      final before = Float64List.fromList(acc);
+      FastRust.pathTrace(
+        acc,
+        width: w,
+        height: h,
+        camera: camera,
+        firstSample: 16,
+        samples: 16,
+      );
+      var diff = 0.0;
+      for (var i = 0; i < acc.length; i++) {
+        diff += (acc[i] / 32 - before[i] / 16).abs();
+      }
+      expect(diff / acc.length, lessThan(0.08));
+    });
+
+    test('validation', () {
+      final cam = const RayCamera().toArray(2, 2);
+      expect(
+        () => FastRust.pathTrace(
+          Float64List(11),
+          width: 2,
+          height: 2,
+          camera: cam,
+          firstSample: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FastRust.pathTrace(
+          Float64List(12),
+          width: 2,
+          height: 2,
+          camera: cam,
+          firstSample: 0,
+          samples: 65,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.pathTrace(
+          Float64List(12),
+          width: 2,
+          height: 2,
+          camera: Float64List(19)..[0] = double.nan,
+          firstSample: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
 }

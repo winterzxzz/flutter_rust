@@ -7,5 +7,5 @@
 library;
 
 export 'src/api.dart'
-    show ColoringPage, FastRust, FastRustException, SandMaterial;
+    show ColoringPage, FastRust, FastRustException, RayCamera, SandMaterial;
 export 'src/dart_reference.dart' show DartReference;

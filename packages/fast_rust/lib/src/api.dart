@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -36,6 +37,17 @@ void _checkImage(Uint8List rgba, int width, int height) {
   if (rgba.length != width * height * 4) {
     throw ArgumentError(
       'rgba.length (${rgba.length}) must equal width * height * 4 '
+      '($width x $height)',
+    );
+  }
+}
+
+void _checkAccum(Float64List accum, int width, int height) {
+  RangeError.checkValueInInterval(width, 0, _maxU32, 'width');
+  RangeError.checkValueInInterval(height, 0, _maxU32, 'height');
+  if (accum.length != width * height * 3) {
+    throw ArgumentError(
+      'accum.length (${accum.length}) must equal width * height * 3 '
       '($width x $height)',
     );
   }
@@ -95,6 +107,92 @@ final class ColoringPage {
   final Uint8List palette;
 
   final int width, height;
+}
+
+/// Camera for [FastRust.pathTrace], orbiting the built-in scene.
+///
+/// [toArray] turns it into the 19 numbers the tracer takes (origin, focus
+/// plane corner and spans, lens axes, lens radius). The trigonometry
+/// happens here, once, so Rust and [DartReference] trace from identical
+/// numbers.
+final class RayCamera {
+  const RayCamera({
+    this.yaw = 0.5,
+    this.pitch = 0.22,
+    this.distance = 10,
+    this.fieldOfView = 30,
+    this.aperture = 0.08,
+    this.targetHeight = 0.8,
+  });
+
+  /// Angle around the vertical axis, in radians (0: looking along -z).
+  final double yaw;
+
+  /// Elevation above the floor, in radians.
+  final double pitch;
+
+  /// Distance from the look-at point; also the focus distance.
+  final double distance;
+
+  /// Vertical field of view, in degrees.
+  final double fieldOfView;
+
+  /// Lens diameter; 0 gives a pinhole camera (no depth of field).
+  final double aperture;
+
+  /// Height of the look-at point above the floor.
+  final double targetHeight;
+
+  RayCamera copyWith({double? yaw, double? pitch, double? distance}) =>
+      RayCamera(
+        yaw: yaw ?? this.yaw,
+        pitch: pitch ?? this.pitch,
+        distance: distance ?? this.distance,
+        fieldOfView: fieldOfView,
+        aperture: aperture,
+        targetHeight: targetHeight,
+      );
+
+  /// The packed camera for a [width] x [height] image.
+  Float64List toArray(int width, int height) {
+    final cp = math.cos(pitch);
+    final from = [
+      distance * math.sin(yaw) * cp,
+      targetHeight + distance * math.sin(pitch),
+      distance * math.cos(yaw) * cp,
+    ];
+    final to = [0.0, targetHeight, 0.0];
+    List<double> unit(List<double> v) {
+      final l = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      return [v[0] / l, v[1] / l, v[2] / l];
+    }
+
+    final w = unit([from[0] - to[0], from[1] - to[1], from[2] - to[2]]);
+    final u = unit([w[2], 0.0, -w[0]]); // up x w, with up = (0, 1, 0)
+    final v = [
+      w[1] * u[2] - w[2] * u[1],
+      w[2] * u[0] - w[0] * u[2],
+      w[0] * u[1] - w[1] * u[0],
+    ];
+    final aspect = height == 0 ? 1.0 : width / height;
+    final hh = math.tan(fieldOfView * math.pi / 360);
+    final hw = aspect * hh;
+    final f = distance;
+    final hor = [u[0] * 2 * hw * f, u[1] * 2 * hw * f, u[2] * 2 * hw * f];
+    final ver = [v[0] * 2 * hh * f, v[1] * 2 * hh * f, v[2] * 2 * hh * f];
+    final ll = [
+      for (var i = 0; i < 3; i++) from[i] - hor[i] / 2 - ver[i] / 2 - w[i] * f,
+    ];
+    return Float64List.fromList([
+      ...from,
+      ...ll,
+      ...hor,
+      ...ver,
+      ...u,
+      ...v,
+      aperture / 2,
+    ]);
+  }
 }
 
 /// Cell values of the falling-sand grid used by [FastRust.sandStep].
@@ -705,6 +803,86 @@ abstract final class FastRust {
     );
     if (status == -2) throw ArgumentError('cells and rgba must not overlap');
     _check('sandRenderRgba', status);
+  }
+
+  /// Largest accepted `samples` per [pathTrace] call.
+  static const maxRaySamples = 64;
+
+  /// Largest accepted `maxDepth` (bounces per path) for [pathTrace].
+  static const maxRayDepth = 16;
+
+  /// Progressive path tracing of the built-in scene: glass, metal and
+  /// diffuse spheres on a checkered floor under a sky.
+  ///
+  /// Adds [samples] paths per pixel to [accum] (`width * height * 3`
+  /// doubles: running RGB sums, row 0 at the top). [firstSample] is the
+  /// number of samples already in [accum]; it seeds the random streams, so
+  /// pass the running total and the image converges instead of repeating.
+  /// Call [pathResolveRgba] to display the average. Rows are traced on all
+  /// CPU cores; the result does not depend on the thread count.
+  ///
+  /// Zero-copy leaf call: keep each call to about a frame of work (for
+  /// example 1–2 samples on a few hundred thousand pixels). A leaf call
+  /// pauses GC for the whole isolate group while it runs, even on a
+  /// background isolate, so split long renders into many short calls.
+  static void pathTrace(
+    Float64List accum, {
+    required int width,
+    required int height,
+    required Float64List camera,
+    required int firstSample,
+    int samples = 1,
+    int maxDepth = 6,
+  }) {
+    _checkAccum(accum, width, height);
+    if (camera.length != 19) {
+      throw ArgumentError('camera must hold 19 values (RayCamera.toArray)');
+    }
+    RangeError.checkValueInInterval(firstSample, 0, _maxU32, 'firstSample');
+    RangeError.checkValueInInterval(samples, 1, maxRaySamples, 'samples');
+    RangeError.checkValueInInterval(maxDepth, 1, maxRayDepth, 'maxDepth');
+    if (firstSample + samples > _maxU32) {
+      throw RangeError('firstSample + samples exceeds 2^32 - 1');
+    }
+    final status = native.frPathTrace(
+      accum.address,
+      width,
+      height,
+      camera.address,
+      firstSample,
+      samples,
+      maxDepth,
+    );
+    if (status == -2) {
+      throw ArgumentError(
+        'camera has non-finite values, or the buffers overlap or are too large',
+      );
+    }
+    _check('pathTrace', status);
+  }
+
+  /// Writes the average of [sampleCount] accumulated samples into [rgba]
+  /// (gamma 2, clamped). Zero-copy leaf call, multi-threaded.
+  static void pathResolveRgba(
+    Float64List accum,
+    Uint8List rgba, {
+    required int width,
+    required int height,
+    required int sampleCount,
+  }) {
+    _checkAccum(accum, width, height);
+    _checkImage(rgba, width, height);
+    RangeError.checkValueInInterval(sampleCount, 0, _maxU32, 'sampleCount');
+    _check(
+      'pathResolveRgba',
+      native.frPathResolveRgba(
+        accum.address,
+        rgba.address,
+        width,
+        height,
+        sampleCount,
+      ),
+    );
   }
 
   /// Dot product of two equally long vectors. Zero-copy leaf call.

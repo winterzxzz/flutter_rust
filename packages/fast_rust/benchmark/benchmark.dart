@@ -231,6 +231,29 @@ void main(List<String> args) {
     () => FastRust.sandStep(sandA, width: sw, height: sw, frame: frameA++),
   );
 
+  // Path tracing: one sample per pixel of a 480x360 frame, 6 bounces.
+  const rw = 480, rh = 360;
+  final rayCamera = const RayCamera().toArray(rw, rh);
+  final rayA = Float64List(rw * rh * 3), rayB = Float64List(rw * rh * 3);
+  var rayN = 0, rayM = 0;
+  _case(
+    'Path trace 480x360, 1 sample',
+    () => DartReference.pathTrace(
+      rayB,
+      width: rw,
+      height: rh,
+      camera: rayCamera,
+      firstSample: rayM++,
+    ),
+    () => FastRust.pathTrace(
+      rayA,
+      width: rw,
+      height: rh,
+      camera: rayCamera,
+      firstSample: rayN++,
+    ),
+  );
+
   final doubles = Float64List.fromList(
     List.generate(1000000, (_) => rnd.nextDouble()),
   );

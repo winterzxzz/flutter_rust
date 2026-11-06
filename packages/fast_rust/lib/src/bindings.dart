@@ -241,3 +241,35 @@ external int frSandRenderRgba(
   int width,
   int height,
 );
+
+@Native<
+  Int32 Function(
+    Pointer<Double>,
+    Uint32,
+    Uint32,
+    Pointer<Double>,
+    Uint32,
+    Uint32,
+    Uint32,
+  )
+>(symbol: 'fr_path_trace', isLeaf: true)
+external int frPathTrace(
+  Pointer<Double> accum,
+  int width,
+  int height,
+  Pointer<Double> camera,
+  int firstSample,
+  int samples,
+  int maxDepth,
+);
+
+@Native<
+  Int32 Function(Pointer<Double>, Pointer<Uint8>, Uint32, Uint32, Uint32)
+>(symbol: 'fr_path_resolve_rgba', isLeaf: true)
+external int frPathResolveRgba(
+  Pointer<Double> accum,
+  Pointer<Uint8> out,
+  int width,
+  int height,
+  int sampleCount,
+);
