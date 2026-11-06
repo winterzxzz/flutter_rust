@@ -46,12 +46,27 @@ pub fn for_each_row_band<T: Send>(
     min_band_rows: usize,
     f: impl Fn(usize, &mut [T]) + Sync,
 ) {
+    if row_len == 0 {
+        return;
+    }
+    // ~16K elements per band keeps queue and spawn overhead negligible.
+    let rows_per_band = (16_384 / row_len).max(min_band_rows).max(1);
+    for_each_band_of(data, row_len, rows_per_band, f);
+}
+
+/// Like [`for_each_row_band`] with an explicit band height, for kernels
+/// whose cost per element is high (so small inputs still deserve threads).
+pub fn for_each_band_of<T: Send>(
+    data: &mut [T],
+    row_len: usize,
+    rows_per_band: usize,
+    f: impl Fn(usize, &mut [T]) + Sync,
+) {
     if row_len == 0 || data.is_empty() {
         return;
     }
     let rows = data.len() / row_len;
-    // ~16K elements per band keeps queue and spawn overhead negligible.
-    let rows_per_band = (16_384 / row_len).max(min_band_rows).max(1);
+    let rows_per_band = rows_per_band.max(1);
     let bands = rows.div_ceil(rows_per_band);
     let threads = thread_count().min(bands);
     if threads <= 1 {
