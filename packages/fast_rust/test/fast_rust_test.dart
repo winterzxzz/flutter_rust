@@ -267,4 +267,193 @@ void validationAndAsync() {
     FastRust.boxBlurRgba(b, width: 300, height: 200, radius: 7);
     expect(a, b);
   });
+
+  group('coloring', () {
+    test('coloring page matches Dart reference', () {
+      for (final (w, h, cells, block, seed) in [
+        (64, 48, 12, 2, 7),
+        (301, 199, 60, 5, 42),
+        (16, 16, 1, 16, 3),
+        // Seeds with the top bit set / negative in Dart's signed int.
+        (40, 30, 7, 2, -1),
+        (40, 30, 7, 2, 1 << 63),
+      ]) {
+        expect(
+          FastRust.coloringPageRgba(
+            width: w,
+            height: h,
+            cells: cells,
+            block: block,
+            seed: seed,
+          ),
+          DartReference.coloringPageRgba(
+            width: w,
+            height: h,
+            cells: cells,
+            block: block,
+            seed: seed,
+          ),
+          reason: '${w}x$h cells=$cells block=$block',
+        );
+      }
+    });
+
+    test('flood fill matches Dart reference, pixel for pixel', () {
+      const w = 240, h = 180;
+      final page = FastRust.coloringPageRgba(
+        width: w,
+        height: h,
+        cells: 50,
+        block: 3,
+      );
+      final r = Random(5);
+      final a = Uint8List.fromList(page);
+      final b = Uint8List.fromList(page);
+      for (var i = 0; i < 60; i++) {
+        final x = r.nextInt(w), y = r.nextInt(h);
+        final color = (r.nextInt(1 << 24) << 8) | 0xff;
+        final tol = i.isEven ? 0 : 40;
+        final na = FastRust.floodFillRgba(
+          a,
+          width: w,
+          height: h,
+          x: x,
+          y: y,
+          color: color,
+          tolerance: tol,
+        );
+        final nb = DartReference.floodFillRgba(
+          b,
+          width: w,
+          height: h,
+          x: x,
+          y: y,
+          color: color,
+          tolerance: tol,
+        );
+        expect(na, nb, reason: 'fill $i at ($x,$y)');
+      }
+      expect(a, b);
+    });
+
+    test('flood fill on an unaligned view uses the byte path correctly', () {
+      const w = 50, h = 40;
+      final page = FastRust.coloringPageRgba(
+        width: w,
+        height: h,
+        cells: 9,
+        block: 2,
+      );
+      // Offset by 1 byte: not 4-byte aligned, so no Uint32List fast path.
+      final backing = Uint8List(page.length + 1)..setAll(1, page);
+      final view = Uint8List.sublistView(backing, 1);
+      final ref = Uint8List.fromList(page);
+      for (final (x, y) in [(10, 10), (25, 20), (40, 33)]) {
+        final a = DartReference.floodFillRgba(
+          view,
+          width: w,
+          height: h,
+          x: x,
+          y: y,
+          color: 0x336699ff,
+        );
+        final b = FastRust.floodFillRgba(
+          ref,
+          width: w,
+          height: h,
+          x: x,
+          y: y,
+          color: 0x336699ff,
+        );
+        expect(a, b);
+      }
+      expect(view, ref);
+    });
+
+    test('coloring page work is bounded', () {
+      expect(
+        () => FastRust.coloringPageRgba(
+          width: 4096,
+          height: 4096,
+          cells: 65536,
+          block: 1,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('coloringPageRgbaAsync matches sync', () async {
+      expect(
+        await FastRust.coloringPageRgbaAsync(
+          width: 80,
+          height: 60,
+          cells: 20,
+          block: 4,
+          seed: 9,
+        ),
+        FastRust.coloringPageRgba(
+          width: 80,
+          height: 60,
+          cells: 20,
+          block: 4,
+          seed: 9,
+        ),
+      );
+    });
+
+    test('flood fill basics and validation', () {
+      final px = Uint8List.fromList(List.filled(3 * 2 * 4, 255));
+      expect(
+        FastRust.floodFillRgba(
+          px,
+          width: 3,
+          height: 2,
+          x: 1,
+          y: 1,
+          color: 0x112233ff,
+        ),
+        6,
+      );
+      expect(px.sublist(0, 4), [0x11, 0x22, 0x33, 0xff]);
+      // Same colour again: nothing to do.
+      expect(
+        FastRust.floodFillRgba(
+          px,
+          width: 3,
+          height: 2,
+          x: 0,
+          y: 0,
+          color: 0x112233ff,
+        ),
+        0,
+      );
+      expect(
+        () => FastRust.floodFillRgba(
+          px,
+          width: 3,
+          height: 2,
+          x: 3,
+          y: 0,
+          color: 0,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.floodFillRgba(
+          px,
+          width: 3,
+          height: 2,
+          x: 0,
+          y: 0,
+          color: 0,
+          tolerance: 256,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.coloringPageRgba(width: 4, height: 4, cells: 0),
+        throwsRangeError,
+      );
+    });
+  });
 }
