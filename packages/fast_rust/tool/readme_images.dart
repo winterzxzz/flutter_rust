@@ -120,6 +120,7 @@ const _labels = {
   'Grayscale': 'Grayscale 1080p',
   'Box blur': 'Box blur 1080p',
   'Mandelbrot': 'Mandelbrot 800×600',
+  'Flood fill': 'Flood fill 1080p',
   'Sort': 'Sort 1 triệu số',
   'Count primes': 'Sàng nguyên tố 20M',
   'Dot product': 'Tích vô hướng 1M',

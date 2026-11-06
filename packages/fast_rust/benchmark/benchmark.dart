@@ -115,6 +115,31 @@ void main(List<String> args) {
     ),
   );
 
+  // Bucket fill of a whole 1920x1080 region; alternate colours so every
+  // run repaints all 2M pixels.
+  final canvas = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 255);
+  var flip = false;
+  int nextColor() => (flip = !flip) ? 0xff0000ff : 0x00ff00ff;
+  _case(
+    'Flood fill 1920x1080 region',
+    () => DartReference.floodFillRgba(
+      canvas,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+      color: nextColor(),
+    ),
+    () => FastRust.floodFillRgba(
+      canvas,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+      color: nextColor(),
+    ),
+  );
+
   final doubles = Float64List.fromList(
     List.generate(1000000, (_) => rnd.nextDouble()),
   );
