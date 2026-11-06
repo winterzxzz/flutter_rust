@@ -5,7 +5,9 @@ edition = "2021"
 # as_chunks / is_multiple_of.
 rust-version = "1.88"
 publish = false
-description = "Native core of the fast_rust Dart/Flutter package."
+description = "Native core of the fast_rust Dart/Flutter package: zero-copy FFI kernels."
+keywords = ["flutter", "dart", "ffi", "performance", "image"]
+categories = ["multimedia::images", "algorithms"]
 
 [lib]
 # cdylib: loaded by Dart through native assets. rlib: lets `cargo test` link.
