@@ -12,6 +12,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// A bottom-navigation tab, found by its icon (only the selected tab shows
+/// its label).
+Finder navTab(IconData icon) => find.descendant(
+  of: find.byType(NavigationBar),
+  matching: find.byIcon(icon),
+);
+
 /// Loads Roboto and Material Icons from the Flutter SDK cache so text and
 /// icons render as real glyphs instead of test boxes.
 Future<void> _loadFonts() async {
@@ -79,7 +86,7 @@ void main() {
 
   testWidgets('fractal', (tester) async {
     await phone(tester);
-    await tester.tap(find.text('Fractal'));
+    await tester.tap(navTab(Icons.blur_on));
     await tester.pump();
     await _settle(tester, () => _text(tester, 'fractal-ms') != '—');
     // Zoom into the spiral at (-0.7453, 0.1127): first tap off-centre, then
@@ -102,7 +109,7 @@ void main() {
 
   testWidgets('live blur', (tester) async {
     await phone(tester);
-    await tester.tap(find.text('Live blur'));
+    await tester.tap(navTab(Icons.image));
     await tester.pump();
     await _settle(
       tester,
@@ -124,7 +131,7 @@ void main() {
 
   testWidgets('paint', (tester) async {
     await phone(tester);
-    await tester.tap(find.text('Paint'));
+    await tester.tap(navTab(Icons.format_color_fill));
     await tester.pump();
     await _settle(tester, () => find.byType(RawImage).evaluate().isNotEmpty);
     // Colour the page with a burst of auto fills, then stop.
@@ -150,7 +157,7 @@ void main() {
 
   testWidgets('photo', (tester) async {
     await phone(tester);
-    await tester.tap(find.text('Photo'));
+    await tester.tap(navTab(Icons.palette));
     await tester.pump();
     await _settle(
       tester,
@@ -189,6 +196,90 @@ void main() {
     await expectLater(
       find.byType(FastRustDemo),
       matchesGoldenFile('../../../docs/images/screenshot-photo.png'),
+    );
+  });
+
+  Future<Rect> openPhoto(WidgetTester tester, String mode) async {
+    await tester.tap(navTab(Icons.palette));
+    await tester.pump();
+    await _settle(
+      tester,
+      () => find.byKey(const Key('photo-canvas')).evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byKey(const Key('photo-spread'))); // instant fills
+    await tester.pump();
+    await tester.tap(find.text(mode));
+    await tester.pump();
+    await _settle(
+      tester,
+      () => !_text(tester, 'photo-ms').startsWith('Building'),
+    );
+    return tester.getRect(find.byKey(const Key('photo-canvas')));
+  }
+
+  testWidgets('photo line art', (tester) async {
+    await phone(tester);
+    final box = await openPhoto(tester, 'Line art');
+    final swatches = find.byType(AnimatedContainer);
+    final rng = [0.21, 0.37, 0.52, 0.66, 0.81, 0.29, 0.45, 0.73, 0.14, 0.59];
+    var c = 0;
+    for (var i = 0; i < rng.length; i++) {
+      for (var j = 0; j < 4; j++) {
+        await tester.tap(swatches.at(c++ % 8));
+        await tester.pump();
+        await tester.tapAt(
+          box.topLeft +
+              Offset(box.width * rng[i], box.height * rng[(i + j * 3) % 10]),
+        );
+        await tester.pump();
+      }
+    }
+    await _wait(tester, 800);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-lineart.png'),
+    );
+  });
+
+  testWidgets('photo splash', (tester) async {
+    await phone(tester);
+    final box = await openPhoto(tester, 'Splash');
+    // Bring back the hair and the apples' tree only.
+    for (final (fx, fy) in [
+      (0.64, 0.42),
+      (0.70, 0.55),
+      (0.72, 0.66),
+      (0.34, 0.50),
+      (0.31, 0.62),
+      (0.56, 0.33),
+      (0.47, 0.31),
+    ]) {
+      await tester.tapAt(box.topLeft + Offset(box.width * fx, box.height * fy));
+      await tester.pump();
+    }
+    await _wait(tester, 800);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-splash.png'),
+    );
+  });
+
+  testWidgets('sand', (tester) async {
+    await phone(tester);
+    await tester.tap(navTab(Icons.grain));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('sand-rain')));
+    await tester.pump();
+    for (var i = 0; i < 160; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await _wait(tester, 500);
+    await expectLater(
+      find.byType(FastRustDemo),
+      matchesGoldenFile('../../../docs/images/screenshot-sand.png'),
     );
   });
 }

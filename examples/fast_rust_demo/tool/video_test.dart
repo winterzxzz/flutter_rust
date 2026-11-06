@@ -15,6 +15,13 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// A bottom-navigation tab, found by its icon (only the selected tab shows
+/// its label).
+Finder navTab(IconData icon) => find.descendant(
+  of: find.byType(NavigationBar),
+  matching: find.byIcon(icon),
+);
+
 const _frame = Duration(microseconds: 33333); // 30 fps
 final _boundary = GlobalKey();
 final _touch = ValueNotifier<Offset?>(null);
@@ -159,7 +166,7 @@ void main() {
     );
 
     // Scene 1: photo recoloring with the spreading fill.
-    await _tap(tester, tester.getCenter(find.text('Photo')), after: 0.1);
+    await _tap(tester, tester.getCenter(navTab(Icons.palette)), after: 0.1);
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 500)),
     );
@@ -202,8 +209,72 @@ void main() {
     _touch.value = null;
     await _hold(tester, 1.0);
 
-    // Scene 2: pixel-art coloring page, spreading then instant fills.
-    await _tap(tester, tester.getCenter(find.text('Paint')), after: 0.1);
+    // Scene 2: color splash, the photo turns gray and taps bring color back.
+    await _tap(tester, tester.getCenter(find.text('Splash')), after: 0.6);
+    for (final (fx, fy) in [(0.64, 0.42), (0.70, 0.58), (0.34, 0.50)]) {
+      await _tap(tester, p(fx, fy), after: 0.7);
+    }
+    await _drag(
+      tester,
+      p(0.56, 0.33),
+      Offset(photo.width * 0.16, photo.height * 0.36),
+    );
+    await _hold(tester, 0.8);
+
+    // Scene 3: the photo becomes a coloring page; fills flow region by
+    // region, then Reveal paints it in the photo's own colors.
+    await _tap(tester, tester.getCenter(find.text('Line art')), after: 0.1);
+    // Wait (real time) for the background isolate to build the page.
+    String caption() =>
+        tester.widget<Text>(find.byKey(const Key('photo-ms'))).data!;
+    while (caption().startsWith('Building')) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    await _hold(tester, 0.7);
+    var c = 0;
+    for (final (fx, fy) in [
+      (0.20, 0.55),
+      (0.55, 0.62),
+      (0.80, 0.20),
+      (0.35, 0.15),
+      (0.75, 0.80),
+      (0.15, 0.90),
+    ]) {
+      await swatch(c++ % 8);
+      await _tap(tester, p(fx, fy), after: 0.7);
+    }
+    await _hold(tester, 0.5);
+    await _tap(
+      tester,
+      tester.getCenter(find.byKey(const Key('photo-reveal'))),
+      after: 1.5,
+    );
+
+    // Scene 4: falling sand, a million cells stepped by Rust every frame.
+    await _tap(tester, tester.getCenter(navTab(Icons.grain)), after: 0.6);
+    final sand = tester.getRect(find.byKey(const Key('sand-canvas')));
+    Offset r(double fx, double fy) =>
+        sand.topLeft + Offset(sand.width * fx, sand.height * fy);
+    await _drag(tester, r(0.15, 0.08), Offset(sand.width * 0.3, 0));
+    await _tap(tester, tester.getCenter(find.text('Water')), after: 0.1);
+    await _drag(tester, r(0.9, 0.08), Offset(-sand.width * 0.3, 0));
+    await _tap(
+      tester,
+      tester.getCenter(find.byKey(const Key('sand-rain'))),
+      after: 3.0,
+    );
+    await _tap(tester, tester.getCenter(find.text('Dart')), after: 1.5);
+    await _tap(tester, tester.getCenter(find.text('Rust')), after: 1.0);
+
+    // Scene 5: pixel-art coloring page, spreading then instant fills.
+    await _tap(
+      tester,
+      tester.getCenter(navTab(Icons.format_color_fill)),
+      after: 0.1,
+    );
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 500)),
     );
@@ -227,8 +298,8 @@ void main() {
     await _tap(tester, tester.getCenter(find.text('Auto')), after: 2.0);
     await _tap(tester, tester.getCenter(find.text('Stop')), after: 0.8);
 
-    // Scene 3: fractal zoom rendered by multi-threaded Rust.
-    await _tap(tester, tester.getCenter(find.text('Fractal')), after: 0.1);
+    // Scene 6: fractal zoom rendered by multi-threaded Rust.
+    await _tap(tester, tester.getCenter(navTab(Icons.blur_on)), after: 0.1);
     for (var i = 0; i < 40; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 50)),
@@ -243,7 +314,7 @@ void main() {
       centre + Offset(-0.2453 / perPx, 0.1127 / perPx),
       after: 0,
     );
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 3; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 600)),
       );
