@@ -9,7 +9,9 @@ pub mod coloring;
 pub mod fractal;
 pub mod hash;
 pub mod image;
+pub mod lineart;
 pub mod numeric;
+pub mod sand;
 mod parallel;
 
 /// Status codes returned by every fallible exported function.
@@ -418,6 +420,116 @@ pub unsafe extern "C" fn fr_paint_by_distance(
     ) as i64
 }
 
+/// Photo to coloring page (see [`lineart::photo_to_coloring_page`]).
+/// `labels` (`width * height` bytes) and `palette` (`colors * 4` bytes) may
+/// be null. Returns a [`Status`].
+///
+/// # Safety
+/// `src` valid for `width * height * 4` bytes; `out` for as many writable
+/// bytes; non-null `labels` / `palette` writable for their sizes. No buffer
+/// may overlap another.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn fr_photo_to_coloring_page(
+    src: *const u8,
+    out: *mut u8,
+    labels: *mut u8,
+    palette: *mut u8,
+    width: u32,
+    height: u32,
+    colors: u32,
+    smooth: u32,
+    min_region: u32,
+    line_width: u32,
+) -> i32 {
+    if colors == 0
+        || colors as usize > lineart::MAX_COLORS
+        || smooth as usize > lineart::MAX_SMOOTH
+        || line_width == 0
+        || line_width as usize > lineart::MAX_LINE_WIDTH
+        || width as u64 * height as u64 > u32::MAX as u64
+    {
+        return Status::InvalidArgument as i32;
+    }
+    let n = width as usize * height as usize;
+    let Some(len) = n.checked_mul(4) else {
+        return Status::InvalidArgument as i32;
+    };
+    let pal_len = colors as usize * 4;
+    let ranges = [
+        (src as usize, len),
+        (out as usize, len),
+        (labels as usize, if labels.is_null() { 0 } else { n }),
+        (palette as usize, if palette.is_null() { 0 } else { pal_len }),
+    ];
+    for a in 0..ranges.len() {
+        for b in a + 1..ranges.len() {
+            if overlaps(ranges[a].0, ranges[a].1, ranges[b].0, ranges[b].1) {
+                return Status::InvalidArgument as i32;
+            }
+        }
+    }
+    let src = try_slice!(slice(src, len));
+    let out = try_slice!(slice_mut(out, len));
+    let labels = if labels.is_null() { None } else { Some(try_slice!(slice_mut(labels, n))) };
+    let palette = if palette.is_null() { None } else { Some(try_slice!(slice_mut(palette, pal_len))) };
+    lineart::photo_to_coloring_page(
+        src,
+        out,
+        labels,
+        palette,
+        width as usize,
+        height as usize,
+        colors as usize,
+        smooth as usize,
+        min_region as usize,
+        line_width as usize,
+    );
+    Status::Ok as i32
+}
+
+/// Advances a falling-sand grid (`width * height` cells, values below
+/// [`sand::MATERIALS`]) by one step. Returns the number of moved particles,
+/// or a negative [`Status`].
+///
+/// # Safety
+/// `cells` valid for `width * height` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn fr_sand_step(cells: *mut u8, width: u32, height: u32, frame: u32) -> i64 {
+    let Some(n) = (width as usize).checked_mul(height as usize) else {
+        return Status::InvalidArgument as i64;
+    };
+    let Some(cells) = slice_mut(cells, n) else {
+        return Status::NullPointer as i64;
+    };
+    if cells.iter().any(|&c| c >= sand::MATERIALS) {
+        return Status::InvalidArgument as i64;
+    }
+    sand::step(cells, width as usize, height as usize, frame) as i64
+}
+
+/// Renders a falling-sand grid into RGBA8888 `out`. Returns a [`Status`].
+///
+/// # Safety
+/// `cells` valid for `width * height` bytes, `out` for four times as many
+/// writable bytes, not overlapping.
+#[no_mangle]
+pub unsafe extern "C" fn fr_sand_render_rgba(cells: *const u8, out: *mut u8, width: u32, height: u32) -> i32 {
+    let Some(n) = (width as usize).checked_mul(height as usize) else {
+        return Status::InvalidArgument as i32;
+    };
+    let Some(len) = n.checked_mul(4) else {
+        return Status::InvalidArgument as i32;
+    };
+    if overlaps(cells as usize, n, out as usize, len) {
+        return Status::InvalidArgument as i32;
+    }
+    let cells = try_slice!(slice(cells, n));
+    let out = try_slice!(slice_mut(out, len));
+    sand::render_rgba(cells, out, width as usize);
+    Status::Ok as i32
+}
+
 /// Sorts `data[0..len]` ascending in place using IEEE-754 total order.
 ///
 /// # Safety
@@ -505,6 +617,16 @@ mod tests {
             assert_eq!(fr_spread_distances(p, p as *mut u32, 2, 2, 0, 0, 0), -2);
             assert_eq!(fr_paint_by_distance(src.as_ptr(), p, p as *const u32, 2, 2, 0, 6, 0, 255, 0), -2);
             assert_eq!(fr_spread_distances(src.as_ptr(), dist.as_mut_ptr(), 30000, 30000, 0, 0, 0), -2);
+            let mut page = [0u8; 16];
+            assert_eq!(fr_photo_to_coloring_page(src.as_ptr(), page.as_mut_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 2, 2, 2, 0, 0, 1), 0);
+            assert_eq!(fr_photo_to_coloring_page(src.as_ptr(), page.as_mut_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 2, 2, 0, 0, 0, 1), -2);
+            assert_eq!(fr_photo_to_coloring_page(page.as_ptr(), page.as_mut_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 2, 2, 2, 0, 0, 1), -2);
+            let mut cells = [0u8, 2, 0, 0];
+            assert_eq!(fr_sand_step(cells.as_mut_ptr(), 2, 2, 0), 1);
+            assert_eq!(cells, [0, 0, 0, 2]);
+            let mut bad = [9u8; 4];
+            assert_eq!(fr_sand_step(bad.as_mut_ptr(), 2, 2, 0), -2);
+            assert_eq!(fr_sand_render_rgba(cells.as_ptr(), page.as_mut_ptr(), 2, 2), 0);
             // 4096x4096 squares x 65536 cells is far beyond the work cap.
             assert_eq!(
                 fr_coloring_page_rgba(std::ptr::null_mut(), 4096, 4096, 65536, 1, 0),
