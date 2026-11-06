@@ -14,7 +14,7 @@
 ![Rust](https://img.shields.io/badge/Rust-%E2%89%A51.88-B7410E?logo=rust&logoColor=white)
 ![FFI](https://img.shields.io/badge/dart%3Affi-zero--copy-6f42c1)
 ![Dependencies](https://img.shields.io/badge/Rust%20deps-0-success)
-![Tests](https://img.shields.io/badge/tests-71%20passing-success)
+![Tests](https://img.shields.io/badge/tests-72%20passing-success)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Demo video](#demo-video) ·
@@ -77,7 +77,7 @@ enough.
   load-balancing work queue. On an Apple M4, Mandelbrot runs **7.3×** faster.
 - 📱 **No UI jank:** the `...Async` functions run on a background isolate
   with *non-leaf* calls, so they block neither the UI thread nor the GC.
-- ✅ **Verified:** 71 tests across Rust, Dart and Flutter.
+- ✅ **Verified:** 72 tests across Rust, Dart and Flutter.
   - Rust output matches the pure-Dart implementation bit for bit.
   - SHA-256 output matches `package:crypto`.
 - 📦 **Small:** the Rust crate has zero dependencies, builds offline and is easy to audit.
@@ -539,7 +539,7 @@ flutter run --profile      # representative numbers; use --release for the real 
 
 | Command | What it checks |
 |---|---|
-| `cd packages/fast_rust/rust && cargo test --release` | **22 Rust tests:**<br>• a photo with two halves becomes two framed regions with an outline between them, tiny speckles merge away, and the output is deterministic<br>• sand falls and piles up, water levels out, sand sinks through water, and walls hold<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• the spreading fill covers exactly the 4-connected region, spreads as a round wave and paints each pixel once<br>• the tint keeps black, white and alpha, and recolor never writes outside the region<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
+| `cd packages/fast_rust/rust && cargo test --release` | **23 Rust tests:**<br>• a photo with two halves becomes two framed regions with an outline between them, tiny speckles merge away, and the output is deterministic<br>• sand falls and piles up, water levels out, sand sinks through water, displaced water moves only once per step, and walls hold<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• the spreading fill covers exactly the 4-connected region, spreads as a round wave and paints each pixel once<br>• the tint keeps black, white and alpha, and recolor never writes outside the region<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
 | `cd packages/fast_rust && dart test` | **40 tests:**<br>• photo to coloring page matches the Dart reference (page, labels, palette) for four settings, is black and white with a frame, and can be filled<br>• 60 falling-sand steps match the Dart reference cell for cell on four grid sizes, material is conserved, and sand comes to rest<br>• coloring pages (including negative seeds and seeds ≥ 2⁶³) and flood fills match the Dart reference pixel for pixel, including on unaligned buffers<br>• photo recolor and spreading-fill distances and rings match the Dart reference pixel for pixel on a fractal "photo" at several tolerances<br>• Rust matches `package:crypto` and `DartReference` bit for bit<br>• views with offsets<br>• input validation<br>• the async non-leaf variants<br>• NaN order<br>• thread limits do not change results |
 | `cd examples/fast_rust_demo && flutter test` | **9 tests:**<br>• Photo splash and line-art modes: a tap restores or fills a region, and Reveal is undoable<br>• the Sand tab simulates, pours on drag without scrolling, and runs with both engines<br>• the Paint tab fills on a vertical drag (without scrolling), with Spread, and in Auto mode<br>• the Photo tab spreads a fill over several frames, recolors on drag without scrolling, and undoes each stroke<br>• Rust loads inside `flutter test`<br>• pages build lazily<br>• the fractal renders through an isolate<br>• live blur renders a frame<br>• a benchmark case runs |
 | `dart run benchmark/benchmark.dart` | Table comparing Dart, Rust 1T and Rust nT. |

@@ -99,7 +99,7 @@ recorded headless with `flutter test`. Full-quality video:
 - Real multi-threading with a load-balancing work queue (Mandelbrot: 7.3×
   faster on an Apple M4).
 - The Rust crate has **zero dependencies** and builds offline.
-- 71 tests across Rust, Dart and Flutter. Rust output matches `DartReference`
+- 72 tests across Rust, Dart and Flutter. Rust output matches `DartReference`
   bit for bit (except NaN placement when sorting), and SHA-256 matches
   `package:crypto`.
 
