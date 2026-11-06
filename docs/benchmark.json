@@ -1,49 +1,55 @@
 {
   "threads": 10,
-  "callOverheadNs": 1.528,
+  "callOverheadNs": 1.486,
   "os": "macos",
   "cases": [
     {
       "name": "SHA-256 8 MiB (vs package:crypto)",
-      "dartMs": 35.496,
-      "rust1Ms": 19.426,
-      "rustAllMs": 19.364
+      "dartMs": 34.829,
+      "rust1Ms": 18.564,
+      "rustAllMs": 18.733
     },
     {
       "name": "Grayscale 1920x1080",
-      "dartMs": 3.089,
-      "rust1Ms": 0.974,
-      "rustAllMs": 0.37
+      "dartMs": 2.314,
+      "rust1Ms": 0.883,
+      "rustAllMs": 0.322
     },
     {
       "name": "Box blur 1920x1080 r=12",
-      "dartMs": 22.808,
-      "rust1Ms": 11.734,
-      "rustAllMs": 4.384
+      "dartMs": 21.804,
+      "rust1Ms": 11.26,
+      "rustAllMs": 2.649
     },
     {
       "name": "Mandelbrot 800x600 x500 iter",
-      "dartMs": 134.205,
-      "rust1Ms": 117.195,
-      "rustAllMs": 18.386
+      "dartMs": 127.065,
+      "rust1Ms": 106.282,
+      "rustAllMs": 17.508
+    },
+    {
+      "name": "Flood fill 1920x1080 region",
+      "dartMs": 11.686,
+      "rust1Ms": 2.931,
+      "rustAllMs": 2.908
     },
     {
       "name": "Sort 1M doubles (Dart List.sort)",
-      "dartMs": 264.726,
-      "rust1Ms": 12.094,
-      "rustAllMs": 12.12
+      "dartMs": 257.316,
+      "rust1Ms": 12.111,
+      "rustAllMs": 12.093
     },
     {
       "name": "Count primes <= 20M",
-      "dartMs": 21.997,
-      "rust1Ms": 9.062,
-      "rustAllMs": 8.204
+      "dartMs": 23.243,
+      "rust1Ms": 9.226,
+      "rustAllMs": 9.343
     },
     {
       "name": "Dot product 1M doubles",
-      "dartMs": 0.671,
-      "rust1Ms": 0.305,
-      "rustAllMs": 0.309
+      "dartMs": 0.685,
+      "rust1Ms": 0.317,
+      "rustAllMs": 0.319
     }
   ]
 }
