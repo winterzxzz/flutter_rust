@@ -5,6 +5,7 @@ import 'pages/blur_page.dart';
 import 'pages/fractal_page.dart';
 import 'pages/paint_page.dart';
 import 'pages/photo_page.dart';
+import 'pages/ray_page.dart';
 import 'pages/sand_page.dart';
 
 void main() => runApp(const FastRustDemo());
@@ -49,6 +50,7 @@ class _HomePageState extends State<HomePage> {
     PaintPage(),
     PhotoPage(),
     SandPage(),
+    RayPage(),
   ];
 
   @override
@@ -70,7 +72,7 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       bottomNavigationBar: NavigationBar(
-        // Six tabs: only the selected label fits on a phone.
+        // Seven tabs: only the selected label fits on a phone.
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() {
@@ -87,6 +89,7 @@ class _HomePageState extends State<HomePage> {
           ),
           NavigationDestination(icon: Icon(Icons.palette), label: 'Photo'),
           NavigationDestination(icon: Icon(Icons.grain), label: 'Sand'),
+          NavigationDestination(icon: Icon(Icons.view_in_ar), label: 'Ray'),
         ],
       ),
     );

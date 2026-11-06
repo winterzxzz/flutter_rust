@@ -39,7 +39,7 @@ void main() {
     expect(FastRust.countPrimes(100), 25);
   });
 
-  testWidgets('home shows the six tabs', (tester) async {
+  testWidgets('home shows the seven tabs', (tester) async {
     await tester.pumpWidget(const FastRustDemo());
     // Only the selected tab shows its label; the rest are icons.
     expect(find.text('Benchmark'), findsOneWidget);
@@ -48,6 +48,7 @@ void main() {
     expect(find.byIcon(Icons.format_color_fill), findsOneWidget); // Paint
     expect(find.byIcon(Icons.palette), findsOneWidget); // Photo
     expect(find.byIcon(Icons.grain), findsOneWidget); // Sand
+    expect(find.byIcon(Icons.view_in_ar), findsOneWidget); // Ray
     expect(find.text('Run all'), findsOneWidget);
     // Heavy demos are built lazily, not at startup.
     expect(find.byType(FractalPage), findsNothing);
@@ -277,6 +278,36 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
     expect(textOf(tester, 'sand-ms'), matches(RegExp(r'^\d steps [\d.]+ ms')));
+  });
+
+  testWidgets('ray page accumulates samples and restarts on orbit', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const FastRustDemo());
+    await tester.tap(navTab(Icons.view_in_ar));
+    await tester.pump();
+    int samples() => int.parse(textOf(tester, 'ray-ms').split(' ').first);
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(samples(), greaterThanOrEqualTo(4));
+    expect(find.byType(RawImage), findsWidgets);
+    final canvas = find.byKey(const Key('ray-canvas'));
+    final rect = tester.getRect(canvas);
+    await tester.drag(canvas, const Offset(-60, 20));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(samples(), lessThan(4), reason: 'orbit restarts the average');
+    expect(tester.getRect(canvas), rect, reason: 'page did not scroll');
+    await tester.tap(find.text('Dart'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(textOf(tester, 'ray-ms'), contains('ms/frame'));
   });
 
   test('benchmark case runs on an isolate', () async {
