@@ -50,6 +50,11 @@ unsafe fn slice_mut<'a, T>(ptr: *mut T, len: usize) -> Option<&'a mut [T]> {
     Some(std::slice::from_raw_parts_mut(ptr, len))
 }
 
+/// Whether the byte ranges `[a, a + a_len)` and `[b, b + b_len)` overlap.
+fn overlaps(a: usize, a_len: usize, b: usize, b_len: usize) -> bool {
+    a_len > 0 && b_len > 0 && a < b.wrapping_add(b_len) && b < a.wrapping_add(a_len)
+}
+
 macro_rules! try_slice {
     ($e:expr) => {
         match $e {
@@ -256,6 +261,163 @@ pub unsafe extern "C" fn fr_flood_fill_rgba(
     ) as i64
 }
 
+/// Recolours the region of `src` around `(x, y)` (RGB within `tolerance`
+/// of the seed pixel) into `dst`, keeping each pixel's luminance. `color` is
+/// `0xRRGGBBAA` (alpha ignored), `strength` 0..=255. Returns the number of
+/// written pixels, or a negative [`Status`]. `src` and `dst` must not overlap.
+///
+/// # Safety
+/// `src` valid for `width * height * 4` bytes, `dst` valid for as many
+/// writable bytes, and the two ranges disjoint.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn fr_recolor_region_rgba(
+    src: *const u8,
+    dst: *mut u8,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    color: u32,
+    tolerance: u32,
+    strength: u32,
+) -> i64 {
+    if x >= width
+        || y >= height
+        || tolerance > 255
+        || strength > 255
+        || width as u64 * height as u64 > u32::MAX as u64
+    {
+        return Status::InvalidArgument as i64;
+    }
+    let Some(len) = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+    else {
+        return Status::InvalidArgument as i64;
+    };
+    if overlaps(src as usize, len, dst as usize, len) {
+        return Status::InvalidArgument as i64; // overlapping buffers
+    }
+    let Some(src) = slice(src, len) else {
+        return Status::NullPointer as i64;
+    };
+    let Some(dst) = slice_mut(dst, len) else {
+        return Status::NullPointer as i64;
+    };
+    coloring::recolor_region_rgba(
+        src,
+        dst,
+        width as usize,
+        height as usize,
+        x as usize,
+        y as usize,
+        color.to_be_bytes(),
+        tolerance as u8,
+        strength as u8,
+    ) as i64
+}
+
+/// Spreading fill, step 1: geodesic distances from `(x, y)` over the
+/// region of `src` within `tolerance` of the seed (see
+/// [`coloring::spread_distances`]) into `dist[0..width*height]`. Returns the
+/// largest distance, or a negative [`Status`].
+///
+/// # Safety
+/// `src` valid for `width * height * 4` bytes, `dist` for `width * height`
+/// writable `u32`s.
+#[no_mangle]
+pub unsafe extern "C" fn fr_spread_distances(
+    src: *const u8,
+    dist: *mut u32,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    tolerance: u32,
+) -> i64 {
+    // Distances reach at most DIAGONAL_STEP * (pixels - 1); keep them below
+    // UNREACHED so they never overflow u32.
+    if x >= width
+        || y >= height
+        || tolerance > 255
+        || width as u64 * height as u64 > coloring::MAX_SPREAD_PIXELS
+    {
+        return Status::InvalidArgument as i64;
+    }
+    let n = width as usize * height as usize;
+    let Some(len) = n.checked_mul(4) else {
+        return Status::InvalidArgument as i64;
+    };
+    if overlaps(src as usize, len, dist as usize, len) {
+        return Status::InvalidArgument as i64; // dist aliases the image
+    }
+    let Some(src) = slice(src, len) else {
+        return Status::NullPointer as i64;
+    };
+    let Some(dist) = slice_mut(dist, n) else {
+        return Status::NullPointer as i64;
+    };
+    coloring::spread_distances(src, dist, width as usize, height as usize, x as usize, y as usize, tolerance as u8)
+        as i64
+}
+
+/// Spreading fill, step 2: paints the pixels with `from <= dist < to` into
+/// `dst`, flat `color` or (with `tint != 0`) a luminance-preserving tint of
+/// `src`. Returns the number of painted pixels, or a negative [`Status`].
+///
+/// # Safety
+/// `src` valid for `width * height * 4` bytes, `dst` for as many writable
+/// bytes (disjoint from `src`), `dist` for `width * height` `u32`s.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn fr_paint_by_distance(
+    src: *const u8,
+    dst: *mut u8,
+    dist: *const u32,
+    width: u32,
+    height: u32,
+    from: u32,
+    to: u32,
+    color: u32,
+    strength: u32,
+    tint: u32,
+) -> i64 {
+    if strength > 255 {
+        return Status::InvalidArgument as i64;
+    }
+    let Some(n) = (width as usize).checked_mul(height as usize) else {
+        return Status::InvalidArgument as i64;
+    };
+    let Some(len) = n.checked_mul(4) else {
+        return Status::InvalidArgument as i64;
+    };
+    // dist is n u32s = len bytes.
+    if overlaps(src as usize, len, dst as usize, len) || overlaps(dist as usize, len, dst as usize, len) {
+        return Status::InvalidArgument as i64; // aliasing buffers
+    }
+    let Some(src) = slice(src, len) else {
+        return Status::NullPointer as i64;
+    };
+    let Some(dst) = slice_mut(dst, len) else {
+        return Status::NullPointer as i64;
+    };
+    let Some(dist) = slice(dist, n) else {
+        return Status::NullPointer as i64;
+    };
+    coloring::paint_by_distance(
+        src,
+        dst,
+        dist,
+        width as usize,
+        from,
+        to,
+        color.to_be_bytes(),
+        strength as u8,
+        tint != 0,
+    ) as i64
+}
+
 /// Sorts `data[0..len]` ascending in place using IEEE-754 total order.
 ///
 /// # Safety
@@ -326,6 +488,23 @@ mod tests {
             assert_eq!(fr_flood_fill_rgba(px.as_mut_ptr(), 2, 2, 0, 0, 0xFF0000FF, 0), 4);
             assert_eq!(&px[..4], &[255, 0, 0, 255]);
             assert_eq!(fr_coloring_page_rgba(px.as_mut_ptr(), 2, 2, 0, 1, 0), -2);
+            let src = [255u8; 16];
+            assert_eq!(fr_recolor_region_rgba(src.as_ptr(), px.as_mut_ptr(), 2, 2, 0, 0, 0xFF0000FF, 0, 255), 4);
+            assert_eq!(fr_recolor_region_rgba(px.as_ptr(), px.as_mut_ptr(), 2, 2, 0, 0, 0, 0, 255), -2);
+            assert_eq!(fr_recolor_region_rgba(src.as_ptr(), px.as_mut_ptr(), 2, 2, 0, 0, 0, 0, 256), -2);
+            assert_eq!(fr_recolor_region_rgba(std::ptr::null(), px.as_mut_ptr(), 2, 2, 0, 0, 0, 0, 0), -1);
+            let mut dist = [0u32; 4];
+            assert_eq!(fr_spread_distances(src.as_ptr(), dist.as_mut_ptr(), 2, 2, 0, 0, 0), 7);
+            assert_eq!(fr_spread_distances(src.as_ptr(), dist.as_mut_ptr(), 2, 2, 2, 0, 0), -2);
+            assert_eq!(fr_spread_distances(src.as_ptr(), std::ptr::null_mut(), 2, 2, 0, 0, 0), -1);
+            assert_eq!(fr_paint_by_distance(src.as_ptr(), px.as_mut_ptr(), dist.as_ptr(), 2, 2, 0, 6, 0x01020304, 255, 0), 3);
+            assert_eq!(fr_paint_by_distance(px.as_ptr(), px.as_mut_ptr(), dist.as_ptr(), 2, 2, 0, 6, 0, 255, 0), -2);
+            // dist aliasing an image buffer is rejected.
+            let mut buf = [255u8; 16];
+            let p = buf.as_mut_ptr();
+            assert_eq!(fr_spread_distances(p, p as *mut u32, 2, 2, 0, 0, 0), -2);
+            assert_eq!(fr_paint_by_distance(src.as_ptr(), p, p as *const u32, 2, 2, 0, 6, 0, 255, 0), -2);
+            assert_eq!(fr_spread_distances(src.as_ptr(), dist.as_mut_ptr(), 30000, 30000, 0, 0, 0), -2);
             // 4096x4096 squares x 65536 cells is far beyond the work cap.
             assert_eq!(
                 fr_coloring_page_rgba(std::ptr::null_mut(), 4096, 4096, 65536, 1, 0),

@@ -1,4 +1,5 @@
-//! Pixel-art coloring: page generation and scanline flood fill.
+//! Coloring: pixel-art page generation, scanline flood fill and
+//! luminance-preserving photo recolouring.
 
 use crate::parallel::{for_each_band_of, for_each_row_band, thread_count};
 
@@ -201,6 +202,221 @@ fn scanline(
     painted
 }
 
+/// Luminance-preserving tint of one pixel: dark pixels stay dark and light
+/// pixels stay light, so texture (hair, leaves, fabric) survives the new
+/// colour. `strength` 0..=255 blends from the source to the full tint.
+/// Integer-only, so the Dart reference matches bit for bit.
+#[inline(always)]
+pub fn tint_pixel(src: [u8; 4], color: [u8; 4], strength: u8) -> [u8; 4] {
+    let l = (77 * src[0] as u32 + 150 * src[1] as u32 + 29 * src[2] as u32) >> 8;
+    let s = strength as u32;
+    let mut out = src;
+    for c in 0..3 {
+        let k = color[c] as u32;
+        let shaded = if l < 128 {
+            k * l / 127
+        } else {
+            k + (255 - k) * (l - 128) / 127
+        }
+        .min(255);
+        let v = src[c] as u32;
+        out[c] = ((v * (255 - s) + shaded * s + 127) / 255) as u8;
+    }
+    out
+}
+
+/// Photo recolouring ("magic wand" + tint): selects the 4-connected region
+/// of `src` around `(x, y)` whose RGB is within `tolerance` (per channel) of
+/// the seed pixel, then writes [`tint_pixel`] of every selected source pixel
+/// into `dst` with `color`. `src` is never modified, so repeated taps always
+/// select against the original photo. Returns the number of pixels written.
+#[allow(clippy::too_many_arguments)]
+pub fn recolor_region_rgba(
+    src: &[u8],
+    dst: &mut [u8],
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    color: [u8; 4],
+    tolerance: u8,
+    strength: u8,
+) -> u64 {
+    let src = src.as_chunks::<4>().0;
+    let dst = dst.as_chunks_mut::<4>().0;
+    let seed = src[y * width + x];
+    let tol = tolerance as i16;
+    let near = |p: &[u8; 4]| (0..3).all(|c| (p[c] as i16 - seed[c] as i16).abs() <= tol);
+    let mut visited = vec![0u64; (width * height).div_ceil(64)];
+    let mut stack = vec![(y * width + x) as u32];
+    let mut painted = 0u64;
+    macro_rules! fillable {
+        ($i:expr) => {{
+            let i = $i;
+            visited[i >> 6] & (1 << (i & 63)) == 0 && near(&src[i])
+        }};
+    }
+    while let Some(i) = stack.pop() {
+        let (x, y) = (i as usize % width, i as usize / width);
+        let row = y * width;
+        if !fillable!(row + x) {
+            continue;
+        }
+        let mut lx = x;
+        while lx > 0 && fillable!(row + lx - 1) {
+            lx -= 1;
+        }
+        let mut rx = x;
+        while rx + 1 < width && fillable!(row + rx + 1) {
+            rx += 1;
+        }
+        for i in row + lx..=row + rx {
+            visited[i >> 6] |= 1 << (i & 63);
+            dst[i] = tint_pixel(src[i], color, strength);
+        }
+        painted += (rx - lx + 1) as u64;
+        for ny in [y.wrapping_sub(1), y + 1] {
+            if ny >= height {
+                continue;
+            }
+            let nrow = ny * width;
+            let mut in_run = false;
+            for i in lx..=rx {
+                let m = fillable!(nrow + i);
+                if m && !in_run {
+                    stack.push((nrow + i) as u32);
+                }
+                in_run = m;
+            }
+        }
+    }
+    painted
+}
+
+/// Distance unit of one orthogonal step in [`spread_distances`]; a diagonal
+/// step costs [`DIAGONAL_STEP`]. 5/7 approximates 1/sqrt(2), so the fill
+/// spreads as a round wave instead of a diamond.
+pub const ORTHOGONAL_STEP: u32 = 5;
+/// See [`ORTHOGONAL_STEP`].
+pub const DIAGONAL_STEP: u32 = 7;
+/// Marks a pixel outside the selected region in [`spread_distances`].
+pub const UNREACHED: u32 = u32::MAX;
+/// Largest image accepted by [`spread_distances`]: the longest geodesic
+/// distance, `DIAGONAL_STEP * (pixels - 1)`, then stays below [`UNREACHED`].
+pub const MAX_SPREAD_PIXELS: u64 = (u32::MAX / DIAGONAL_STEP) as u64;
+
+/// Spreading fill ("paint that flows"): for the region of `src` around
+/// `(x, y)` whose RGB is within `tolerance` of the seed pixel, writes the
+/// geodesic distance from the seed into `dist` (in [`ORTHOGONAL_STEP`]
+/// units), and [`UNREACHED`] everywhere else. Animating
+/// `paint_by_distance` with a growing radius makes the colour flow around
+/// obstacles and along the region's shape.
+///
+/// The region is exactly the 4-connected region (a diagonal step is only
+/// taken next to an orthogonal one, so colour never leaks through a
+/// diagonal gap in an outline). Dijkstra with a bucket queue: O(pixels).
+/// Returns the largest distance. Callers must pass `(x, y)` inside the image
+/// and at most [`MAX_SPREAD_PIXELS`] pixels; `dist` must not alias `src`.
+#[allow(clippy::too_many_arguments)]
+pub fn spread_distances(
+    src: &[u8],
+    dist: &mut [u32],
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    tolerance: u8,
+) -> u32 {
+    let src = src.as_chunks::<4>().0;
+    dist.fill(UNREACHED);
+    let seed = src[y * width + x];
+    let tol = tolerance as i16;
+    let inside = |i: usize| (0..3).all(|c| (src[i][c] as i16 - seed[c] as i16).abs() <= tol);
+    // Bucket queue keyed by distance modulo (DIAGONAL_STEP + 1): every
+    // pending entry is within DIAGONAL_STEP of the current distance.
+    const RING: usize = DIAGONAL_STEP as usize + 1;
+    let mut buckets: [Vec<u32>; RING] = Default::default();
+    let start = y * width + x;
+    dist[start] = 0;
+    buckets[0].push(start as u32);
+    let mut pending = 1usize;
+    let mut d = 0u32;
+    let mut max = 0u32;
+    while pending > 0 {
+        let slot = d as usize % RING;
+        while let Some(i) = buckets[slot].pop() {
+            pending -= 1;
+            let i = i as usize;
+            if dist[i] != d {
+                continue; // stale entry, already reached by a shorter path
+            }
+            max = d;
+            let (px, py) = ((i % width) as isize, (i / width) as isize);
+            let ok = |nx: isize, ny: isize| {
+                nx >= 0 && ny >= 0 && (nx as usize) < width && (ny as usize) < height && inside(ny as usize * width + nx as usize)
+            };
+            let mut relax = |nx: isize, ny: isize, step: u32, buckets: &mut [Vec<u32>; RING], pending: &mut usize| {
+                let j = ny as usize * width + nx as usize;
+                let nd = d + step;
+                if nd < dist[j] {
+                    dist[j] = nd;
+                    buckets[nd as usize % RING].push(j as u32);
+                    *pending += 1;
+                }
+            };
+            let (l, r, u, dn) = (ok(px - 1, py), ok(px + 1, py), ok(px, py - 1), ok(px, py + 1));
+            if l { relax(px - 1, py, ORTHOGONAL_STEP, &mut buckets, &mut pending); }
+            if r { relax(px + 1, py, ORTHOGONAL_STEP, &mut buckets, &mut pending); }
+            if u { relax(px, py - 1, ORTHOGONAL_STEP, &mut buckets, &mut pending); }
+            if dn { relax(px, py + 1, ORTHOGONAL_STEP, &mut buckets, &mut pending); }
+            for (dx, dy, a, b) in [(-1, -1, l, u), (1, -1, r, u), (-1, 1, l, dn), (1, 1, r, dn)] {
+                if (a || b) && ok(px + dx, py + dy) {
+                    relax(px + dx, py + dy, DIAGONAL_STEP, &mut buckets, &mut pending);
+                }
+            }
+        }
+        d += 1;
+    }
+    max
+}
+
+/// Paints every pixel whose `dist` is in `from..to` (half-open, so frames
+/// `0..r1`, `r1..r2`, ... never paint a pixel twice). With `tint`, the
+/// pixel becomes [`tint_pixel`] of `src` (photos keep their texture);
+/// otherwise it becomes `color` (flat fill for line art). Multi-threaded.
+/// Returns the number of painted pixels.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_by_distance(
+    src: &[u8],
+    dst: &mut [u8],
+    dist: &[u32],
+    width: usize,
+    from: u32,
+    to: u32,
+    color: [u8; 4],
+    strength: u8,
+    tint: bool,
+) -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let painted = AtomicU64::new(0);
+    let stride = width * 4;
+    let src_px = src.as_chunks::<4>().0;
+    for_each_row_band(dst, stride, 1, |first_row, band| {
+        let mut n = 0u64;
+        let base = first_row * width;
+        for (k, px) in band.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let i = base + k;
+            let d = dist[i];
+            if d >= from && d < to {
+                *px = if tint { tint_pixel(src_px[i], color, strength) } else { color };
+                n += 1;
+            }
+        }
+        painted.fetch_add(n, Ordering::Relaxed);
+    });
+    painted.into_inner()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +498,87 @@ mod tests {
         // Same seed, same page; different seed, different page.
         assert_eq!(p, page(w, h, 10, 4, 1));
         assert_ne!(p, page(w, h, 10, 4, 2));
+    }
+
+    #[test]
+    fn tint_keeps_luminance_order() {
+        let red = [230, 40, 60, 255];
+        let black = tint_pixel([0, 0, 0, 255], red, 255);
+        let white = tint_pixel([255, 255, 255, 255], red, 255);
+        let mid = tint_pixel([128, 128, 128, 200], red, 255);
+        assert_eq!(black, [0, 0, 0, 255]);
+        assert_eq!(white, [255, 255, 255, 255]);
+        assert_eq!(mid[3], 200, "alpha kept");
+        assert!(mid[0] > mid[1] && mid[0] > mid[2], "tinted red: {mid:?}");
+        // Strength 0 is the identity.
+        assert_eq!(tint_pixel([12, 34, 56, 78], red, 0), [12, 34, 56, 78]);
+    }
+
+    #[test]
+    fn recolor_selects_on_source_and_writes_dst() {
+        // Left half light gray (200), right half dark (40), 8x4.
+        let (w, h) = (8, 4);
+        let src: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let v = if i % w < 4 { 200 } else { 40 };
+                [v, v, v, 255]
+            })
+            .collect();
+        let mut dst = src.clone();
+        let n = recolor_region_rgba(&src, &mut dst, w, h, 1, 1, [0, 0, 255, 255], 10, 255);
+        assert_eq!(n, 16);
+        for (i, px) in dst.as_chunks::<4>().0.iter().enumerate() {
+            if i % w < 4 {
+                assert!(px[2] > px[0], "left half tinted blue");
+            } else {
+                assert_eq!(*px, [40, 40, 40, 255], "right half untouched");
+            }
+        }
+        // Selecting again on the untouched source repaints the same region.
+        let n2 = recolor_region_rgba(&src, &mut dst, w, h, 0, 0, [255, 0, 0, 255], 10, 255);
+        assert_eq!(n2, 16);
+        assert!(dst[0] > dst[2], "now red");
+    }
+
+    #[test]
+    fn spread_covers_exactly_the_4_connected_region() {
+        for &(w, h, cells, block) in &[(64, 48, 12, 2), (97, 61, 9, 1)] {
+            let base = page(w, h, cells, block, 11);
+            let mut rng = Rng::new(9);
+            for _ in 0..20 {
+                let (x, y) = (rng.below(w), rng.below(h));
+                let mut dist = vec![0u32; w * h];
+                let max = spread_distances(&base, &mut dist, w, h, x, y, 0);
+                let mut filled = base.clone();
+                let n = naive_fill(&mut filled, w, h, x, y, [1, 2, 3, 4], 0);
+                let reached = dist.iter().filter(|&&d| d != UNREACHED).count() as u64;
+                assert_eq!(reached, n.max(1), "{w}x{h} at ({x},{y})");
+                assert_eq!(dist[y * w + x], 0);
+                assert!(dist.iter().all(|&d| d == UNREACHED || d <= max));
+            }
+        }
+    }
+
+    #[test]
+    fn spread_is_round_and_paints_once() {
+        // Open 41x41 white square, seed in the centre.
+        let (w, h) = (41, 41);
+        let src = vec![255u8; w * h * 4];
+        let mut dist = vec![0u32; w * h];
+        let max = spread_distances(&src, &mut dist, w, h, 20, 20, 0);
+        // Straight and diagonal neighbours.
+        assert_eq!(dist[20 * w + 25], 25);
+        assert_eq!(dist[25 * w + 25], 35);
+        assert_eq!(max, 20 * DIAGONAL_STEP);
+        // Painting in consecutive rings touches every pixel exactly once.
+        let mut dst = vec![0u8; w * h * 4];
+        let mut total = 0;
+        let mut r = 0;
+        while r <= max {
+            total += paint_by_distance(&src, &mut dst, &dist, w, r, r + 13, [9, 8, 7, 255], 255, false);
+            r += 13;
+        }
+        assert_eq!(total, (w * h) as u64);
+        assert!(dst.as_chunks::<4>().0.iter().all(|p| *p == [9, 8, 7, 255]));
     }
 }
