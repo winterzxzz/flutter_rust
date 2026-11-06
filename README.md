@@ -5,16 +5,19 @@
 # flutter_rust: Flutter + Rust FFI for high-performance Flutter apps
 
 **Call Rust from Flutter/Dart with `dart:ffi`: no codegen, zero-copy, built automatically by native assets.**
-Image processing, **pixel-art coloring (flood fill)**, hashing, sorting and number crunching run
-**1.9× to 21× faster** than pure Dart. Every number is benchmarked and every result is verified by tests.
+**Photo recoloring**, a **spreading fill**, **pixel-art flood fill**, image processing, hashing and
+sorting run **1.9× to 21× faster** than pure Dart. Every number is benchmarked and every result is verified by tests.
 
+[![pub package](https://img.shields.io/pub/v/fast_rust.svg)](https://pub.dev/packages/fast_rust)
 ![Flutter](https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-%E2%89%A53.10-0175C2?logo=dart&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-%E2%89%A51.88-B7410E?logo=rust&logoColor=white)
 ![FFI](https://img.shields.io/badge/dart%3Affi-zero--copy-6f42c1)
 ![Dependencies](https://img.shields.io/badge/Rust%20deps-0-success)
-![Tests](https://img.shields.io/badge/tests-48%20passing-success)
+![Tests](https://img.shields.io/badge/tests-59%20passing-success)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+[Demo video](#demo-video) ·
 [Quick start](#4-quick-start) ·
 [Benchmarks](#1-benchmark-results) ·
 [API](#6-api) ·
@@ -34,8 +37,9 @@ to speed up my app?"*. It contains:
   the same input, so you can see the difference on your own phone.
 
 It is a good fit for CPU-heavy work in Flutter apps:
+- **photo editing** (recolor hair, sky or clothes while keeping texture);
 - **image processing** (blur, grayscale, filters);
-- **coloring and pixel-art apps** (flood fill, paint bucket);
+- **coloring and pixel-art apps** (flood fill, paint bucket, a fill that spreads from the finger);
 - **hashing and crypto** (SHA-256);
 - **sorting large datasets**;
 - **scientific computing**;
@@ -54,6 +58,12 @@ enough.
   automatically on `flutter run`, `flutter build` and `flutter test`. You don't
   edit Gradle, CMake or Podspecs, and you don't copy `.so` or `.dylib` files by
   hand.
+- 🖌️ **Recolor real photos:** tap the hair and it turns pink, with every
+  strand still visible. A magic-wand selection over the original pixels plus a
+  brightness-preserving tint; a tap on a 505×607 photo takes 0.05 to 1.3 ms.
+- 🌊 **Spreading fill:** the color flows out from the finger as a round wave
+  that follows the region's shape (geodesic distances, Dijkstra with a bucket
+  queue).
 - 🎨 **Smooth pixel-art coloring:** flood-filling a solid 2-megapixel region
   takes about 3 ms (Dart: 12 ms). A region of a few thousand pixels takes about
   0.1 ms, which is fast enough to paint continuously as your finger drags.
@@ -61,19 +71,30 @@ enough.
   load-balancing work queue. On an Apple M4, Mandelbrot runs **7.3×** faster.
 - 📱 **No UI jank:** the `...Async` functions run on a background isolate
   with *non-leaf* calls, so they block neither the UI thread nor the GC.
-- ✅ **Verified:** 48 tests across Rust, Dart and Flutter.
+- ✅ **Verified:** 59 tests across Rust, Dart and Flutter.
   - Rust output matches the pure-Dart implementation bit for bit.
   - SHA-256 output matches `package:crypto`.
 - 📦 **Small:** the Rust crate has zero dependencies, builds offline and is easy to audit.
 
 <div align="center">
 
-| Pixel-art coloring in Rust | Fractal explorer in Rust | Real-time blur on the UI thread |
-|:---:|:---:|:---:|
-| <img src="docs/images/screenshot-paint.png" alt="Flutter pixel-art coloring app using a Rust flood fill; tapping fills a region in 0.07 ms" width="260"/> | <img src="docs/images/screenshot-fractal.png" alt="Flutter app exploring the Mandelbrot set, rendered by multi-threaded Rust through dart:ffi" width="260"/> | <img src="docs/images/screenshot-blur.png" alt="Flutter app blurring a 1280×800 image in real time with Rust, 7.2 ms per frame, within the 16.7 ms budget" width="260"/> |
-| Tap or drag to fill; a ~2,400 px region took **0.07 ms** (single sample, test environment) | Renders in the background on 10 Rust threads; the UI stays smooth while zooming | A 1280×800 box blur takes **7.2 ms/frame**, within the 60 fps budget |
+| Photo recoloring in Rust | Pixel-art coloring in Rust | Fractal explorer in Rust | Real-time blur on the UI thread |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/images/screenshot-photo.png" alt="Flutter app recoloring hair pink and grass purple in a real photo with Rust while keeping the texture" width="200"/> | <img src="docs/images/screenshot-paint.png" alt="Flutter pixel-art coloring app using a Rust flood fill; tapping fills a region in 0.07 ms" width="200"/> | <img src="docs/images/screenshot-fractal.png" alt="Flutter app exploring the Mandelbrot set, rendered by multi-threaded Rust through dart:ffi" width="200"/> | <img src="docs/images/screenshot-blur.png" alt="Flutter app blurring a 1280×800 image in real time with Rust, 7.2 ms per frame, within the 16.7 ms budget" width="200"/> |
+| Tap or drag with **Spread** on: the color flows along the hair; selection reads the original pixels | Tap or drag to fill; a ~2,400 px region took **0.07 ms** (single sample, test environment) | Renders in the background on 10 Rust threads; the UI stays smooth while zooming | A 1280×800 box blur takes **7.2 ms/frame**, within the 60 fps budget |
 
 </div>
+
+### Demo video
+
+<p align="center">
+  <img src="docs/video/demo.gif" width="320" alt="fast_rust demo video: recoloring hair and grass in a photo with a spreading fill, filling a pixel-art coloring page, Auto mode at 62 FPS and a Rust-rendered fractal zoom"/>
+</p>
+
+27 seconds of real app footage: photo recoloring with the spreading fill, the
+coloring book (spread, drag, Auto mode), and a fractal zoom. It is recorded
+headless by `examples/fast_rust_demo/tool/video_test.dart`. Full quality:
+[`docs/video/demo.mp4`](docs/video/demo.mp4).
 
 *These are real screenshots of the app, rendered headless with `flutter test`;
 see [section 15](#15-regenerating-the-readme-images-and-numbers). The
@@ -128,6 +149,18 @@ is in [`docs/benchmark.json`](docs/benchmark.json).
 | Count primes ≤ 20 million                  |   23.24 |    9.23 |  2.5× |     9.34 |  2.5× |
 | Dot product of 1M `double`s                |    0.69 |    0.32 |  2.2× |     0.32 |  2.1× |
 
+**Newer pixel kernels.** These two were measured later on a different machine
+(Apple M1 Pro, 8 threads, under background load), so compare them only with
+each other. Both run on a solid 1920×1080 region, which selects the whole frame:
+
+| Task                                                   | Dart ms | Rust ms |    × |
+|--------------------------------------------------------|--------:|--------:|-----:|
+| Photo recolor (`recolorRegionRgba`)                    |   52.90 |   27.04 | 2.0× |
+| Spreading-fill distances (`spreadDistancesRgba`)       |  182.74 |   54.30 | 3.4× |
+
+A tapped region in a real photo is usually far smaller. In the demo, one tap on
+505×607 px takes 0.05 to 1.3 ms.
+
 One FFI call (leaf call, AOT) costs about **1.5 ns**. Results vary by about
 ±15% between runs; for example, the 10-thread blur has measured anywhere from
 2.6 to 4.8 ms.
@@ -170,7 +203,7 @@ flutter_rust/
 │   │       ├── hash.rs              # SHA-256 (FIPS 180-4)
 │   │       ├── image.rs             # Grayscale, separable box blur
 │   │       ├── fractal.rs           # Mandelbrot
-│   │       ├── coloring.rs          # Pixel-art coloring pages, scanline flood fill
+│   │       ├── coloring.rs          # Coloring pages, flood fill, photo recolor, spreading fill
 │   │       └── numeric.rs           # f64 sort, prime sieve, dot product
 │   ├── hook/build.dart              # Build hook: runs cargo for the right target, registers the CodeAsset
 │   ├── lib/
@@ -179,20 +212,24 @@ flutter_rust/
 │   │       ├── bindings.dart        # @Native declarations (leaf and non-leaf)
 │   │       ├── api.dart             # Safe API: class FastRust
 │   │       └── dart_reference.dart  # Same algorithms in pure Dart (oracle and baseline)
-│   ├── test/fast_rust_test.dart     # 28 tests: correctness, validation, async, coloring
+│   ├── test/fast_rust_test.dart     # 34 tests: correctness, validation, async, coloring, recolor
+│   ├── example/fast_rust_example.dart # Command-line tour: every kernel in Rust and Dart, outputs compared
 │   ├── benchmark/benchmark.dart     # Command-line benchmark (--json exports results)
 │   └── tool/readme_images.dart      # Generates the README charts and images from real output
 └── examples/fast_rust_demo/         # Flutter demo app
     ├── lib/
-    │   ├── main.dart                # 4 tabs, each built on first visit
+    │   ├── main.dart                # 5 tabs, each built on first visit
     │   ├── benchmarks.dart          # Benchmark cases run on a background isolate
     │   ├── engine.dart              # Rust/Dart enum, RGBA to ui.Image
-    │   └── pages/                   # benchmark_page, fractal_page, blur_page, paint_page
+    │   ├── spread.dart              # One running spreading-fill animation
+    │   └── pages/                   # benchmark, fractal, blur, paint and photo pages
     ├── test/app_test.dart           # Widget tests (load the real Rust library through native assets)
-    └── tool/screenshots_test.dart   # App screenshots for the README (golden files)
+    ├── assets/photo.jpg             # Photo used by the Photo tab
+    └── tool/                        # screenshots_test.dart, video_test.dart, make_video.sh
 docs/
 ├── benchmark.json                   # Raw results behind the table and charts
-└── images/                          # Banner, charts, app screenshots, Rust-rendered images
+├── images/                          # Banner, charts, app screenshots, Rust-rendered images
+└── video/                           # demo.mp4 and demo.gif, recorded from the real app
 ```
 
 ## 3. Requirements
@@ -248,13 +285,15 @@ flutter run --release        # or --profile; debug builds run Dart in JIT mode a
 
 ## 5. Using the library in your app
 
-Add the dependency (currently by path):
+Add the dependency from [pub.dev](https://pub.dev/packages/fast_rust):
 
-```yaml
-dependencies:
-  fast_rust:
-    path: ../packages/fast_rust
+```sh
+flutter pub add fast_rust
 ```
+
+You also need Rust ≥ 1.88 and the Rust targets for your platforms (see
+[section 3](#3-requirements)); the build hook compiles the crate on your
+machine.
 
 Examples:
 
@@ -283,6 +322,19 @@ final Uint8List fractal = await FastRust.mandelbrotRgbaAsync(
 final page = FastRust.coloringPageRgba(width: 1024, height: 1024, cells: 140, block: 8);
 final painted = FastRust.floodFillRgba(page,
     width: 1024, height: 1024, x: tapX, y: tapY, color: 0x2A9D8FFF);
+
+// Photo recoloring: select by color around the tap and tint, keeping texture.
+// `source` is the decoded photo (never modified), `canvas` a copy you display.
+FastRust.recolorRegionRgba(source, canvas,
+    width: w, height: h, x: tapX, y: tapY, color: 0xFF4D8DFF, tolerance: 28);
+
+// Spreading fill: distances once, then one ring per frame.
+final dist = Uint32List(w * h);
+final maxDist = FastRust.spreadDistancesRgba(source, dist,
+    width: w, height: h, x: tapX, y: tapY, tolerance: 28);
+FastRust.paintByDistanceRgba(source, canvas, dist,
+    width: w, height: h, from: previousRadius, to: radius,
+    color: 0xFF4D8DFF, tint: true);   // tint: false paints a flat color
 
 // In-place sort (IEEE-754 total order)
 FastRust.sortFloat64(values);
@@ -316,6 +368,9 @@ Everything lives in `abstract final class FastRust`.
 | `coloringPageRgba(width:, height:, cells:, block:, seed:) → Uint8List` | sync, non-leaf, multi-threaded | Generates a pixel-art coloring page: `cells` Voronoi regions on a grid of `block`×`block` px squares, with black outlines. The same `seed` gives the same page. |
 | `coloringPageRgbaAsync(...) → Future<Uint8List>` | background isolate, non-leaf | Same as above, in the background. |
 | `floodFillRgba(rgba, width:, height:, x:, y:, color:, tolerance:) → int` | sync, leaf, in place | Paint bucket: fills the 4-connected region around (x, y) with `color` (`0xRRGGBBAA`), with a per-channel `tolerance` of 0–255. Returns the number of pixels painted (0 when `tolerance` is 0 and the region already has that color). |
+| `recolorRegionRgba(source, target, width:, height:, x:, y:, color:, tolerance:, strength:) → int` | sync, leaf, zero-copy | Photo recoloring. Selects the 4-connected region of `source` whose RGB is within `tolerance` of the tapped pixel, then writes a luminance-preserving tint of those pixels into `target`; `strength` (0–255) blends from the original color to the full tint. `source` is only read. Returns the number of written pixels. |
+| `spreadDistancesRgba(source, distances, width:, height:, x:, y:, tolerance:) → int` | sync, leaf, zero-copy | Spreading fill, step 1: writes each region pixel's geodesic distance from the tap into a `Uint32List` (`spreadStep` = 5 units per orthogonal pixel, 7 per diagonal), and `unreached` outside the region. Returns the largest distance. |
+| `paintByDistanceRgba(source, target, distances, width:, height:, from:, to:, color:, strength:, tint:) → int` | sync, leaf, multi-threaded | Spreading fill, step 2: paints the pixels with `from ≤ distance < to`, as a flat color or (`tint: true`) a tint of `source`. Consecutive frames never paint a pixel twice. |
 | `countPrimes(int) → int` | sync, non-leaf | Number of primes ≤ limit (odd-only sieve). |
 | `dot(Float64List, Float64List) → double` | sync, leaf | Dot product with 4 accumulators so LLVM can vectorize. |
 | `threadCount` / `setThreadLimit(int)` | | Read or cap the number of Rust threads (`0` = default: one per core, at most 16). |
@@ -358,7 +413,7 @@ How the library uses them:
 
 | Case | Call kind |
 |---|---|
-| Sync functions on your buffers (`sha256`, `boxBlurRgba`, `grayscaleRgba`, `floodFillRgba`, `sortFloat64`, `dot`) | **Leaf**, zero-copy. Use them only for work of a few milliseconds, such as the per-frame blur in the demo. |
+| Sync functions on your buffers (`sha256`, `boxBlurRgba`, `grayscaleRgba`, `floodFillRgba`, `recolorRegionRgba`, `spreadDistancesRgba`, `paintByDistanceRgba`, `sortFloat64`, `dot`) | **Leaf**, zero-copy. Use them only for work of a few milliseconds, such as the per-frame blur in the demo. |
 | `...Async` | Background isolate: copy into native memory, make a **non-leaf** call, copy the result back. Use them for long work. |
 | `mandelbrotRgba`, `coloringPageRgba`, `countPrimes` | Always **non-leaf**, because they only write output or take no buffer. |
 
@@ -434,14 +489,15 @@ the radius.
 
 ## 9. Demo app
 
-`examples/fast_rust_demo` has 4 tabs. Each tab is built on first visit, so no
+`examples/fast_rust_demo` has 5 tabs. Each tab is built on first visit, so no
 heavy work runs at startup.
 
 | Tab | What it shows |
 |---|---|
 | **Benchmark** | Tap *Run all*: each case runs in Dart and in Rust on a background isolate, then the tab shows comparison bars and the speedup. Debug builds show a warning. |
 | **Fractal** | Explore the Mandelbrot set at screen resolution (up to 1200 px). Tap to zoom in, long-press to zoom out, adjust the iteration count, and switch between the Rust and Dart engines to compare render times. Rendering runs on a background isolate with a non-leaf call, so the UI stays smooth. |
-| **Paint** (coloring) | A 1024×1024 pixel-art coloring book generated by Rust. The page does not scroll, so every drag paints. Pick a color, then **tap or drag your finger** to fill regions with the flood fill; the app shows the pixel count and time of each fill. **Auto** refills *N* random regions every frame (slider: 1–200) and shows **FPS** plus the fill time per frame. Switch Rust/Dart to compare on your own device. FPS also depends on image upload time, not just fill time. |
+| **Paint** (coloring) | A 1024×1024 pixel-art coloring book generated by Rust. The page does not scroll, so every drag paints. Pick a color, then **tap or drag your finger** to fill regions with the flood fill; the app shows the pixel count and time of each fill. **Spread** makes each tap flow out as a wave (flat color, `paintByDistanceRgba`). **Auto** refills *N* random regions every frame (slider: 1–200) and shows **FPS** plus the fill time per frame. Switch Rust/Dart to compare on your own device. FPS also depends on image upload time, not just fill time. |
+| **Photo** (recolor) | A real 505×607 photo, decoded once into RGBA bytes. Pick a color and **tap or drag** on the hair, the grass or the road: `recolorRegionRgba` selects similar connected pixels and tints them while keeping their brightness. With **Spread** on (the default), the color flows out from the finger frame by frame instead, and every drag step starts a new flow, like a brush. *Tolerance* and *Strength* sliders, **Undo** (20 steps), **Reset**, and **Hold: original** to compare. The caption shows the distance pass and per-frame paint times. |
 | **Live blur** | A 1280×800 image (itself rendered by Rust) is blurred on the UI thread on every slider move. The screen shows the time per frame against the 16.7 ms budget. If the progress spinner freezes, the UI thread is blocked. |
 
 Run it:
@@ -455,9 +511,9 @@ flutter run --profile      # representative numbers; use --release for the real 
 
 | Command | What it checks |
 |---|---|
-| `cd packages/fast_rust/rust && cargo test --release` | **14 Rust tests:**<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
-| `cd packages/fast_rust && dart test` | **28 tests:**<br>• coloring pages (including negative seeds and seeds ≥ 2⁶³) and flood fills match the Dart reference pixel for pixel, including on unaligned buffers<br>• Rust matches `package:crypto` and `DartReference` bit for bit<br>• views with offsets<br>• input validation<br>• the async non-leaf variants<br>• NaN order<br>• thread limits do not change results |
-| `cd examples/fast_rust_demo && flutter test` | **6 tests:**<br>• the Paint tab fills on a vertical drag (without scrolling) and in Auto mode<br>• Rust loads inside `flutter test`<br>• pages build lazily<br>• the fractal renders through an isolate<br>• live blur renders a frame<br>• a benchmark case runs |
+| `cd packages/fast_rust/rust && cargo test --release` | **18 Rust tests:**<br>• flood fill matches BFS on random coloring pages, including tolerance<br>• the spreading fill covers exactly the 4-connected region, spreads as a round wave and paints each pixel once<br>• the tint keeps black, white and alpha, and recolor never writes outside the region<br>• SHA-256 NIST vectors<br>• blur matches a naive O(r²) version, even with a radius larger than the image<br>• parallel output matches serial<br>• NaN ordering<br>• prime sieve<br>• the FFI rejects nulls and bad sizes |
+| `cd packages/fast_rust && dart test` | **34 tests:**<br>• coloring pages (including negative seeds and seeds ≥ 2⁶³) and flood fills match the Dart reference pixel for pixel, including on unaligned buffers<br>• photo recolor and spreading-fill distances and rings match the Dart reference pixel for pixel on a fractal "photo" at several tolerances<br>• Rust matches `package:crypto` and `DartReference` bit for bit<br>• views with offsets<br>• input validation<br>• the async non-leaf variants<br>• NaN order<br>• thread limits do not change results |
+| `cd examples/fast_rust_demo && flutter test` | **7 tests:**<br>• the Paint tab fills on a vertical drag (without scrolling), with Spread, and in Auto mode<br>• the Photo tab spreads a fill over several frames, recolors on drag without scrolling, and undoes each stroke<br>• Rust loads inside `flutter test`<br>• pages build lazily<br>• the fractal renders through an isolate<br>• live blur renders a frame<br>• a benchmark case runs |
 | `dart run benchmark/benchmark.dart` | Table comparing Dart, Rust 1T and Rust nT. |
 
 Lints: `cargo clippy --release --all-targets`, `dart analyze`, `flutter analyze`.
@@ -525,7 +581,9 @@ but has not been run on those platforms.
   blur on Android.
 - Several isolates calling parallel functions at once can oversubscribe the CPU cores.
 - Sync leaf functions still pause GC while they run (see section 7).
-- The project has no license yet.
+- Photo selection compares each pixel with the tapped one, so regions whose
+  color is close to a neighbor's (blonde hair next to skin) can leak. Lower the
+  tolerance or tap several times.
 
 ## 14. FAQ
 
@@ -629,13 +687,15 @@ dart run tool/readme_images.dart ../../docs                           # SVG char
 
 cd ../../examples/fast_rust_demo
 flutter test tool/screenshots_test.dart --update-goldens              # app screenshots
+flutter test tool/video_test.dart && tool/make_video.sh               # demo video (needs ffmpeg)
 ```
 
 | Image | Source |
 |---|---|
 | `benchmark-light.svg`, `benchmark-dark.svg` | `tool/readme_images.dart`, from `docs/benchmark.json` |
 | `mandelbrot.png`, `blur-before-after.png` | `FastRust.mandelbrotRgba` and `FastRust.boxBlurRgba` |
-| `screenshot-*.png` (fractal, blur, paint) | Golden tests of the demo app, with real Roboto fonts |
+| `screenshot-*.png` (photo, fractal, blur, paint) | Golden tests of the demo app, with real Roboto fonts |
+| `docs/video/demo.mp4`, `demo.gif` | `tool/video_test.dart` records frames of the real app; `tool/make_video.sh` encodes them with ffmpeg |
 | `banner.png` | AI-generated illustration; contains no data |
 
 ---
@@ -646,10 +706,13 @@ flutter test tool/screenshots_test.dart --update-goldens              # app scre
 
 **Keywords:** Flutter Rust · Flutter FFI · dart:ffi · call Rust from Flutter ·
 Flutter performance optimization · speed up Flutter · native assets · build hooks ·
-Flutter image processing · Flutter coloring app · flood fill · pixel art ·
+Flutter image processing · Flutter photo editor · recolor image · magic wand ·
+Flutter coloring app · flood fill · spreading fill · pixel art ·
 coloring book · Rust cdylib · flutter_rust_bridge alternative · Dart isolate ·
 Flutter performance
 
 If you find this useful, please ⭐ the repo so more people can find it.
+
+Released under the [MIT License](LICENSE).
 
 </div>
