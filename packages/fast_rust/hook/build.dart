@@ -133,9 +133,14 @@ Map<String, String> _toolchainEnv(CodeConfig code, String triple) {
         'CARGO_TARGET_${envTriple}_LINKER':
             '$binDir${Platform.pathSeparator}$clangTarget$api-clang$ext',
       };
+    // `targetVersion` is deprecated in code_assets 2.2 in favour of
+    // `deploymentVersion`, which 2.1 lacks. Flutter 3.47 pins 2.1, so keep
+    // the old getter until the supported Flutter range moves to 2.2.
     case OS.macOS:
+      // ignore: deprecated_member_use
       return {'MACOSX_DEPLOYMENT_TARGET': '${code.macOS.targetVersion}'};
     case OS.iOS:
+      // ignore: deprecated_member_use
       return {'IPHONEOS_DEPLOYMENT_TARGET': '${code.iOS.targetVersion}'};
     default:
       return const {};

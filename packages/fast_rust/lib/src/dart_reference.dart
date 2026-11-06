@@ -274,6 +274,149 @@ abstract final class DartReference {
     );
   }
 
+  /// Same luminance-preserving tint as the Rust side, bit for bit.
+  static void _tint(Uint8List src, int p, Uint8List dst, List<int> c, int s) {
+    final l = (77 * src[p] + 150 * src[p + 1] + 29 * src[p + 2]) >> 8;
+    for (var k = 0; k < 3; k++) {
+      final ch = c[k];
+      var shaded = l < 128 ? ch * l ~/ 127 : ch + (255 - ch) * (l - 128) ~/ 127;
+      if (shaded > 255) shaded = 255;
+      dst[p + k] = (src[p + k] * (255 - s) + shaded * s + 127) ~/ 255;
+    }
+    dst[p + 3] = src[p + 3];
+  }
+
+  /// Same selection and tint as [FastRust.recolorRegionRgba].
+  static int recolorRegionRgba(
+    Uint8List source,
+    Uint8List target, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    required int color,
+    int tolerance = 32,
+    int strength = 255,
+  }) {
+    final c = [(color >> 24) & 0xff, (color >> 16) & 0xff, (color >> 8) & 0xff];
+    final s = (y * width + x) * 4;
+    final t0 = source[s], t1 = source[s + 1], t2 = source[s + 2];
+    final visited = Uint8List(width * height);
+    return _scanline(
+      width,
+      height,
+      x,
+      y,
+      (i) {
+        if (visited[i] != 0) return false;
+        final p = i * 4;
+        return (source[p] - t0).abs() <= tolerance &&
+            (source[p + 1] - t1).abs() <= tolerance &&
+            (source[p + 2] - t2).abs() <= tolerance;
+      },
+      (from, to) {
+        for (var i = from; i < to; i++) {
+          visited[i] = 1;
+          _tint(source, i * 4, target, c, strength);
+        }
+      },
+    );
+  }
+
+  /// Same geodesic distances as [FastRust.spreadDistancesRgba] (Dijkstra
+  /// with 5/7 chamfer steps; shortest distances are unique, so the result
+  /// matches Rust exactly).
+  static int spreadDistancesRgba(
+    Uint8List source,
+    Uint32List distances, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    int tolerance = 32,
+  }) {
+    const unreached = 0xFFFFFFFF, ring = 8;
+    distances.fillRange(0, distances.length, unreached);
+    final s = (y * width + x) * 4;
+    final t0 = source[s], t1 = source[s + 1], t2 = source[s + 2];
+    bool ok(int nx, int ny) {
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) return false;
+      final p = (ny * width + nx) * 4;
+      return (source[p] - t0).abs() <= tolerance &&
+          (source[p + 1] - t1).abs() <= tolerance &&
+          (source[p + 2] - t2).abs() <= tolerance;
+    }
+
+    final buckets = List.generate(ring, (_) => <int>[]);
+    distances[y * width + x] = 0;
+    buckets[0].add(y * width + x);
+    var pending = 1, d = 0, max = 0;
+    while (pending > 0) {
+      final bucket = buckets[d % ring];
+      while (bucket.isNotEmpty) {
+        final i = bucket.removeLast();
+        pending--;
+        if (distances[i] != d) continue;
+        max = d;
+        final px = i % width, py = i ~/ width;
+        void relax(int nx, int ny, int step) {
+          final j = ny * width + nx, nd = d + step;
+          if (nd < distances[j]) {
+            distances[j] = nd;
+            buckets[nd % ring].add(j);
+            pending++;
+          }
+        }
+
+        final l = ok(px - 1, py), r = ok(px + 1, py);
+        final u = ok(px, py - 1), dn = ok(px, py + 1);
+        if (l) relax(px - 1, py, 5);
+        if (r) relax(px + 1, py, 5);
+        if (u) relax(px, py - 1, 5);
+        if (dn) relax(px, py + 1, 5);
+        if ((l || u) && ok(px - 1, py - 1)) relax(px - 1, py - 1, 7);
+        if ((r || u) && ok(px + 1, py - 1)) relax(px + 1, py - 1, 7);
+        if ((l || dn) && ok(px - 1, py + 1)) relax(px - 1, py + 1, 7);
+        if ((r || dn) && ok(px + 1, py + 1)) relax(px + 1, py + 1, 7);
+      }
+      d++;
+    }
+    return max;
+  }
+
+  /// Same as [FastRust.paintByDistanceRgba].
+  static int paintByDistanceRgba(
+    Uint8List source,
+    Uint8List target,
+    Uint32List distances, {
+    required int width,
+    required int height,
+    required int from,
+    required int to,
+    required int color,
+    int strength = 255,
+    bool tint = false,
+  }) {
+    final c = [
+      (color >> 24) & 0xff,
+      (color >> 16) & 0xff,
+      (color >> 8) & 0xff,
+      color & 0xff,
+    ];
+    var n = 0;
+    for (var i = 0; i < width * height; i++) {
+      final d = distances[i];
+      if (d < from || d >= to) continue;
+      if (tint) {
+        _tint(source, i * 4, target, c, strength);
+      } else {
+        target.setRange(i * 4, i * 4 + 4, c);
+      }
+      n++;
+    }
+    return n;
+  }
+
   static int _scanline(
     int width,
     int height,

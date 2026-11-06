@@ -456,4 +456,333 @@ void validationAndAsync() {
       );
     });
   });
+
+  group('photo recolor', () {
+    // A fractal render is a good stand-in for a photo: smooth gradients,
+    // fine detail and sharp edges.
+    const w = 160, h = 120;
+    final photo = FastRust.mandelbrotRgba(
+      width: w,
+      height: h,
+      centerX: -0.7453,
+      centerY: 0.1127,
+      scale: 0.02 / w,
+      maxIterations: 300,
+    );
+
+    test('matches Dart reference, pixel for pixel', () {
+      final rng = Random(5);
+      for (final tolerance in [0, 12, 40, 255]) {
+        for (var k = 0; k < 8; k++) {
+          final x = rng.nextInt(w), y = rng.nextInt(h);
+          final color = rng.nextInt(1 << 32);
+          final strength = [255, 180, 0][k % 3];
+          final a = Uint8List.fromList(photo);
+          final b = Uint8List.fromList(photo);
+          final na = FastRust.recolorRegionRgba(
+            photo,
+            a,
+            width: w,
+            height: h,
+            x: x,
+            y: y,
+            color: color,
+            tolerance: tolerance,
+            strength: strength,
+          );
+          final nb = DartReference.recolorRegionRgba(
+            photo,
+            b,
+            width: w,
+            height: h,
+            x: x,
+            y: y,
+            color: color,
+            tolerance: tolerance,
+            strength: strength,
+          );
+          expect(na, nb, reason: 'count at ($x,$y) tol $tolerance');
+          expect(na, greaterThan(0));
+          expect(a, b, reason: 'pixels at ($x,$y) tol $tolerance');
+        }
+      }
+      // tolerance 255 selects the whole image.
+      final all = Uint8List(w * h * 4);
+      expect(
+        FastRust.recolorRegionRgba(
+          photo,
+          all,
+          width: w,
+          height: h,
+          x: 0,
+          y: 0,
+          color: 0xff0000ff,
+          tolerance: 255,
+        ),
+        w * h,
+      );
+    });
+
+    test('keeps source untouched and preserves brightness order', () {
+      final src = Uint8List.fromList(
+        List.generate(4 * 4, (i) => i % 4 == 3 ? 255 : (i ~/ 4) * 60 + 20),
+      ); // a 4x1 gray ramp: 20, 80, 140, 200
+      final copy = Uint8List.fromList(src);
+      final dst = Uint8List(16);
+      final n = FastRust.recolorRegionRgba(
+        src,
+        dst,
+        width: 4,
+        height: 1,
+        x: 0,
+        y: 0,
+        color: 0x3366ccff,
+        tolerance: 255,
+      );
+      expect(n, 4);
+      expect(src, copy);
+      final lum = [
+        for (var i = 0; i < 4; i++)
+          77 * dst[i * 4] + 150 * dst[i * 4 + 1] + 29 * dst[i * 4 + 2],
+      ];
+      for (var i = 1; i < 4; i++) {
+        expect(lum[i], greaterThan(lum[i - 1]));
+      }
+      expect(dst[6], greaterThan(dst[4]), reason: 'tinted blue, not gray');
+    });
+
+    test('validation', () {
+      final a = Uint8List(16), b = Uint8List(16);
+      expect(
+        () => FastRust.recolorRegionRgba(
+          a,
+          a,
+          width: 2,
+          height: 2,
+          x: 0,
+          y: 0,
+          color: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FastRust.recolorRegionRgba(
+          a,
+          b,
+          width: 2,
+          height: 2,
+          x: 2,
+          y: 0,
+          color: 0,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.recolorRegionRgba(
+          a,
+          b,
+          width: 2,
+          height: 2,
+          x: 0,
+          y: 0,
+          color: 0,
+          strength: 256,
+        ),
+        throwsRangeError,
+      );
+      expect(
+        () => FastRust.recolorRegionRgba(
+          a,
+          Uint8List(12),
+          width: 2,
+          height: 2,
+          x: 0,
+          y: 0,
+          color: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('spreading fill', () {
+    test('distances match the Dart reference and cover the fill region', () {
+      const w = 120, h = 90;
+      final page = FastRust.coloringPageRgba(
+        width: w,
+        height: h,
+        cells: 14,
+        block: 3,
+        seed: 4,
+      );
+      final photo = FastRust.mandelbrotRgba(
+        width: w,
+        height: h,
+        centerX: -0.7453,
+        centerY: 0.1127,
+        scale: 0.02 / w,
+        maxIterations: 300,
+      );
+      final rng = Random(8);
+      for (final (image, tolerance) in [(page, 0), (photo, 30), (photo, 90)]) {
+        for (var k = 0; k < 6; k++) {
+          final x = rng.nextInt(w), y = rng.nextInt(h);
+          final a = Uint32List(w * h), b = Uint32List(w * h);
+          final ma = FastRust.spreadDistancesRgba(
+            image,
+            a,
+            width: w,
+            height: h,
+            x: x,
+            y: y,
+            tolerance: tolerance,
+          );
+          final mb = DartReference.spreadDistancesRgba(
+            image,
+            b,
+            width: w,
+            height: h,
+            x: x,
+            y: y,
+            tolerance: tolerance,
+          );
+          expect(ma, mb);
+          expect(a, b, reason: 'distances at ($x,$y) tol $tolerance');
+          // Same pixels as a recolor with the same tolerance.
+          final recolored = Uint8List(w * h * 4);
+          final n = FastRust.recolorRegionRgba(
+            image,
+            recolored,
+            width: w,
+            height: h,
+            x: x,
+            y: y,
+            color: 0xffffffff,
+            tolerance: tolerance,
+          );
+          expect(a.where((d) => d != FastRust.unreached).length, n);
+
+          // Painting in rings matches the reference and paints each pixel once.
+          final ta = Uint8List(w * h * 4), tb = Uint8List(w * h * 4);
+          var total = 0;
+          for (var r = 0; r <= ma; r += 37) {
+            for (final tint in [false, true]) {
+              if (tint != (r ~/ 37).isOdd) continue;
+              final pa = FastRust.paintByDistanceRgba(
+                image,
+                ta,
+                a,
+                width: w,
+                height: h,
+                from: r,
+                to: r + 37,
+                color: 0x8338ecff,
+                tint: tint,
+              );
+              final pb = DartReference.paintByDistanceRgba(
+                image,
+                tb,
+                b,
+                width: w,
+                height: h,
+                from: r,
+                to: r + 37,
+                color: 0x8338ecff,
+                tint: tint,
+              );
+              expect(pa, pb);
+              total += pa;
+            }
+          }
+          expect(total, n);
+          expect(ta, tb);
+        }
+      }
+    });
+
+    test('spreads as a round wave in an open area', () {
+      const w = 41, h = 41;
+      final white = Uint8List.fromList(List.filled(w * h * 4, 255));
+      final dist = Uint32List(w * h);
+      final max = FastRust.spreadDistancesRgba(
+        white,
+        dist,
+        width: w,
+        height: h,
+        x: 20,
+        y: 20,
+      );
+      expect(max, 20 * 7);
+      expect(dist[20 * w + 30], 50); // 10 px straight
+      expect(dist[30 * w + 30], 70); // 10 px diagonal
+    });
+
+    test('validation', () {
+      final img = Uint8List(16), out = Uint8List(16);
+      expect(
+        () => FastRust.spreadDistancesRgba(
+          img,
+          Uint32List(3),
+          width: 2,
+          height: 2,
+          x: 0,
+          y: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FastRust.paintByDistanceRgba(
+          img,
+          img,
+          Uint32List(4),
+          width: 2,
+          height: 2,
+          from: 0,
+          to: 1,
+          color: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        FastRust.paintByDistanceRgba(
+          img,
+          out,
+          Uint32List(4),
+          width: 2,
+          height: 2,
+          from: 0,
+          to: 1,
+          color: 0x01020304,
+        ),
+        4,
+      );
+      expect(out.sublist(0, 4), [1, 2, 3, 4]);
+      // distances aliasing an image is rejected, not undefined behaviour.
+      final shared = Uint8List(16);
+      expect(
+        () => FastRust.spreadDistancesRgba(
+          shared,
+          Uint32List.view(shared.buffer),
+          width: 2,
+          height: 2,
+          x: 0,
+          y: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FastRust.paintByDistanceRgba(
+          img,
+          shared,
+          Uint32List.view(shared.buffer),
+          width: 2,
+          height: 2,
+          from: 0,
+          to: 1,
+          color: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
 }

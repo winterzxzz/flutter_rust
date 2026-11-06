@@ -41,6 +41,15 @@ void _checkImage(Uint8List rgba, int width, int height) {
   }
 }
 
+void _checkDistances(Uint32List distances, int width, int height) {
+  if (distances.length != width * height) {
+    throw ArgumentError(
+      'distances.length (${distances.length}) must equal width * height '
+      '($width x $height)',
+    );
+  }
+}
+
 /// Runs [body] with a native copy of [data], then copies the result back
 /// into a new Dart list. Native memory lets the call be non-leaf.
 Uint8List _onNativeCopy(Uint8List data, void Function(Pointer<Uint8>) body) {
@@ -351,6 +360,160 @@ abstract final class FastRust {
       tolerance,
     );
     if (n < 0) throw FastRustException('floodFillRgba', n);
+    return n;
+  }
+
+  /// Recolours a region of a photo while keeping its texture ("magic wand"
+  /// plus tint).
+  ///
+  /// Selects the 4-connected region of [source] around ([x], [y]) whose RGB
+  /// is within [tolerance] (per channel, 0..255) of the tapped pixel, and
+  /// writes those pixels into [target] tinted with [color] (`0xRRGGBBAA`,
+  /// alpha ignored). Each pixel keeps its own brightness, so hair, leaves
+  /// or fabric stay detailed instead of turning into a flat blob.
+  /// [strength] (0..255) blends from the original to the full tint.
+  ///
+  /// [source] is only read, so every tap selects against the original
+  /// photo and the same region can be recoloured again. [source] and
+  /// [target] must be distinct buffers of `width * height * 4` bytes.
+  /// Returns the number of written pixels. Zero-copy leaf call.
+  static int recolorRegionRgba(
+    Uint8List source,
+    Uint8List target, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    required int color,
+    int tolerance = 32,
+    int strength = 255,
+  }) {
+    _checkImage(source, width, height);
+    _checkImage(target, width, height);
+    RangeError.checkValueInInterval(x, 0, width - 1, 'x');
+    RangeError.checkValueInInterval(y, 0, height - 1, 'y');
+    RangeError.checkValueInInterval(color, 0, _maxU32, 'color');
+    RangeError.checkValueInInterval(tolerance, 0, 255, 'tolerance');
+    RangeError.checkValueInInterval(strength, 0, 255, 'strength');
+    if (width * height > _maxU32) {
+      throw ArgumentError('image too large to recolor: ${width}x$height');
+    }
+    final n = native.frRecolorRegionRgba(
+      source.address,
+      target.address,
+      width,
+      height,
+      x,
+      y,
+      color,
+      tolerance,
+      strength,
+    );
+    // Every other argument is checked above; Rust compares the addresses.
+    if (n == -2) throw ArgumentError('source and target must not overlap');
+    if (n < 0) throw FastRustException('recolorRegionRgba', n);
+    return n;
+  }
+
+  /// Distance units of one orthogonal pixel step in [spreadDistancesRgba];
+  /// a diagonal step costs 7, so the spreading fill grows as a round wave.
+  static const spreadStep = 5;
+
+  /// Value of [spreadDistancesRgba] for pixels outside the region.
+  static const unreached = 0xFFFFFFFF;
+
+  /// Largest `width * height` accepted by [spreadDistancesRgba], so the
+  /// longest distance (7 units per diagonal pixel) stays below [unreached].
+  static const maxSpreadPixels = 0xFFFFFFFF ~/ 7;
+
+  /// Spreading fill, step 1 ("paint that flows").
+  ///
+  /// Selects the 4-connected region of [source] around ([x], [y]) whose RGB
+  /// is within [tolerance] of the tapped pixel and writes each pixel's
+  /// distance from the tap, measured along the region (it flows around
+  /// obstacles), into [distances] in [spreadStep] units per pixel. Pixels
+  /// outside the region get [unreached]. Returns the largest distance.
+  ///
+  /// Then call [paintByDistanceRgba] once per frame with a growing radius
+  /// to animate the colour spreading out from the finger. Zero-copy leaf
+  /// call, O(pixels). [distances] must be a separate buffer of
+  /// `width * height` values, not a view over [source].
+  static int spreadDistancesRgba(
+    Uint8List source,
+    Uint32List distances, {
+    required int width,
+    required int height,
+    required int x,
+    required int y,
+    int tolerance = 32,
+  }) {
+    _checkImage(source, width, height);
+    _checkDistances(distances, width, height);
+    RangeError.checkValueInInterval(x, 0, width - 1, 'x');
+    RangeError.checkValueInInterval(y, 0, height - 1, 'y');
+    RangeError.checkValueInInterval(tolerance, 0, 255, 'tolerance');
+    if (width * height > maxSpreadPixels) {
+      throw ArgumentError('image too large to spread: ${width}x$height');
+    }
+    final n = native.frSpreadDistances(
+      source.address,
+      distances.address,
+      width,
+      height,
+      x,
+      y,
+      tolerance,
+    );
+    // Every other argument is checked above; Rust compares the addresses.
+    if (n == -2) throw ArgumentError('distances must not overlap source');
+    if (n < 0) throw FastRustException('spreadDistancesRgba', n);
+    return n;
+  }
+
+  /// Spreading fill, step 2: paints into [target] every pixel whose
+  /// [distances] value `d` satisfies `from <= d < to`. Consecutive frames
+  /// `0..r1`, `r1..r2`, ... paint each pixel exactly once.
+  ///
+  /// With [tint] the pixel becomes a brightness-preserving tint of [source]
+  /// (as in [recolorRegionRgba], for photos); otherwise it becomes the flat
+  /// [color] (`0xRRGGBBAA`, for line art). Returns the number of painted
+  /// pixels. [target] must not overlap [source] or [distances]. Zero-copy
+  /// leaf call, multi-threaded.
+  static int paintByDistanceRgba(
+    Uint8List source,
+    Uint8List target,
+    Uint32List distances, {
+    required int width,
+    required int height,
+    required int from,
+    required int to,
+    required int color,
+    int strength = 255,
+    bool tint = false,
+  }) {
+    _checkImage(source, width, height);
+    _checkImage(target, width, height);
+    _checkDistances(distances, width, height);
+    RangeError.checkValueInInterval(from, 0, _maxU32, 'from');
+    RangeError.checkValueInInterval(to, 0, _maxU32, 'to');
+    RangeError.checkValueInInterval(color, 0, _maxU32, 'color');
+    RangeError.checkValueInInterval(strength, 0, 255, 'strength');
+    final n = native.frPaintByDistance(
+      source.address,
+      target.address,
+      distances.address,
+      width,
+      height,
+      from,
+      to,
+      color,
+      strength,
+      tint ? 1 : 0,
+    );
+    if (n == -2) {
+      throw ArgumentError('target must not overlap source or distances');
+    }
+    if (n < 0) throw FastRustException('paintByDistanceRgba', n);
     return n;
   }
 

@@ -140,6 +140,51 @@ void main(List<String> args) {
     ),
   );
 
+  // Photo recoloring and the spreading fill on a 1920x1080 "photo" (the
+  // canvas above: one solid region, so the whole frame is selected).
+  final recolored = Uint8List(w * h * 4);
+  _case(
+    'Photo recolor 1920x1080 region',
+    () => DartReference.recolorRegionRgba(
+      canvas,
+      recolored,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+      color: 0xff4d8dff,
+    ),
+    () => FastRust.recolorRegionRgba(
+      canvas,
+      recolored,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+      color: 0xff4d8dff,
+    ),
+  );
+  final distances = Uint32List(w * h);
+  _case(
+    'Spread fill distances 1920x1080',
+    () => DartReference.spreadDistancesRgba(
+      canvas,
+      distances,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+    ),
+    () => FastRust.spreadDistancesRgba(
+      canvas,
+      distances,
+      width: w,
+      height: h,
+      x: w ~/ 2,
+      y: h ~/ 2,
+    ),
+  );
+
   final doubles = Float64List.fromList(
     List.generate(1000000, (_) => rnd.nextDouble()),
   );

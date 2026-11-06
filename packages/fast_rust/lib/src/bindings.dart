@@ -124,3 +124,76 @@ external int frFloodFillRgba(
   int color,
   int tolerance,
 );
+
+@Native<
+  Int64 Function(
+    Pointer<Uint8>,
+    Pointer<Uint8>,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+  )
+>(symbol: 'fr_recolor_region_rgba', isLeaf: true)
+external int frRecolorRegionRgba(
+  Pointer<Uint8> src,
+  Pointer<Uint8> dst,
+  int width,
+  int height,
+  int x,
+  int y,
+  int color,
+  int tolerance,
+  int strength,
+);
+
+@Native<
+  Int64 Function(
+    Pointer<Uint8>,
+    Pointer<Uint32>,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+  )
+>(symbol: 'fr_spread_distances', isLeaf: true)
+external int frSpreadDistances(
+  Pointer<Uint8> src,
+  Pointer<Uint32> dist,
+  int width,
+  int height,
+  int x,
+  int y,
+  int tolerance,
+);
+
+@Native<
+  Int64 Function(
+    Pointer<Uint8>,
+    Pointer<Uint8>,
+    Pointer<Uint32>,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+    Uint32,
+  )
+>(symbol: 'fr_paint_by_distance', isLeaf: true)
+external int frPaintByDistance(
+  Pointer<Uint8> src,
+  Pointer<Uint8> dst,
+  Pointer<Uint32> dist,
+  int width,
+  int height,
+  int from,
+  int to,
+  int color,
+  int strength,
+  int tint,
+);
